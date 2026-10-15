@@ -24,6 +24,7 @@ import hashlib
 import json
 import re
 import sys
+import threading
 from collections import Counter
 from pathlib import Path
 
@@ -209,58 +210,12 @@ def _add(jobs: list[dict], seen: set, found: list[dict]) -> None:
 
 
 def collect_jobs(config: dict) -> list[dict]:
-    jobs: list[dict] = []
-    seen: set = set()
     sources = config.get("sources", {})
     terms = config["search_terms"]
     limit = config.get("limit_per_term", 15)
 
-    # --- fontes com busca por palavra-chave: uma chamada por termo ---
-    for term in terms:
-        if sources.get("gupy", {}).get("enabled"):
-            # a Gupy tem limite próprio (limit_per_term dentro de sources.gupy): com
-            # o geral de 15, "e-commerce" trazia 15 de 213 vagas. Em teste com
-            # --limit, vale o limite do teste.
-            gupy_limit = (
-                limit if config.get("limit_per_company") is not None
-                else sources["gupy"].get("limit_per_term", limit)
-            )
-            try:
-                _add(jobs, seen, fetch_gupy(term, limit=gupy_limit, city=sources["gupy"].get("city", "")))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Gupy falhou para '{term}': {e}", file=sys.stderr)
-
-        if sources.get("remotive", {}).get("enabled"):
-            try:
-                _add(jobs, seen, fetch_remotive(term, category=sources["remotive"].get("category", ""), limit=limit))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Remotive falhou para '{term}': {e}", file=sys.stderr)
-
-        if sources.get("weworkremotely", {}).get("enabled"):
-            try:
-                _add(
-                    jobs,
-                    seen,
-                    fetch_weworkremotely(term, category=sources["weworkremotely"].get("category", ""), limit=limit),
-                )
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] We Work Remotely falhou para '{term}': {e}", file=sys.stderr)
-
-        if sources.get("bebee", {}).get("enabled"):
-            try:
-                _add(jobs, seen, fetch_bebee(term, max_pages=sources["bebee"].get("max_pages_per_term", 2)))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] beBee falhou para '{term}': {e}", file=sys.stderr)
-
-        if sources.get("amazon", {}).get("enabled"):
-            try:
-                _add(
-                    jobs,
-                    seen,
-                    fetch_amazon(term, limit=limit, country=sources["amazon"].get("country", "BRA")),
-                )
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Amazon falhou para '{term}': {e}", file=sys.stderr)
+    def on(nome: str) -> bool:
+        return bool(sources.get(nome, {}).get("enabled"))
 
     # --- fontes por empresa / por página (sem busca por termo): trazem todas as
     # vagas abertas, então passam pelo filtro de título (title_keywords) e, em
@@ -277,151 +232,183 @@ def collect_jobs(config: dict) -> list[dict]:
         found = [j for j in found if titulo_ok(j["titulo"])]
         return found[:company_limit] if company_limit is not None else found
 
+    # Cada busca (um termo numa fonte, ou uma empresa) vira uma tarefa; as
+    # tarefas rodam em paralelo (collect_workers) e os resultados entram na
+    # ordem em que as tarefas foram criadas — a mesma ordem da coleta
+    # sequencial de antes, então a deduplicação não muda.
+    tarefas: list[tuple] = []  # (fonte, rótulo do aviso, função)
+
+    def tarefa(fonte: str, rotulo: str, fn) -> None:
+        tarefas.append((fonte, rotulo, fn))
+
+    # --- fontes com busca por palavra-chave: uma chamada por termo ---
+    # a Gupy tem limite próprio (limit_per_term dentro de sources.gupy): com
+    # o geral de 15, "e-commerce" trazia 15 de 213 vagas. Em teste com
+    # --limit, vale o limite do teste.
+    gupy_limit = (
+        limit if config.get("limit_per_company") is not None
+        else sources.get("gupy", {}).get("limit_per_term", limit)
+    )
+    for term in terms:
+        if on("gupy"):
+            tarefa("gupy", f"Gupy falhou para '{term}'",
+                   lambda t=term: fetch_gupy(t, limit=gupy_limit, city=sources["gupy"].get("city", "")))
+        if on("remotive"):
+            tarefa("remotive", f"Remotive falhou para '{term}'",
+                   lambda t=term: fetch_remotive(t, category=sources["remotive"].get("category", ""), limit=limit))
+        if on("weworkremotely"):
+            tarefa("weworkremotely", f"We Work Remotely falhou para '{term}'",
+                   lambda t=term: fetch_weworkremotely(
+                       t, category=sources["weworkremotely"].get("category", ""), limit=limit))
+        if on("bebee"):
+            tarefa("bebee", f"beBee falhou para '{term}'",
+                   lambda t=term: fetch_bebee(t, max_pages=sources["bebee"].get("max_pages_per_term", 2)))
+        if on("amazon"):
+            tarefa("amazon", f"Amazon falhou para '{term}'",
+                   lambda t=term: fetch_amazon(t, limit=limit, country=sources["amazon"].get("country", "BRA")))
+
     # Mercado Livre: sem busca por termo (ver collectors/mercadolivre.py),
     # traz as N primeiras páginas de vagas do Brasil uma única vez
-    if sources.get("mercadolivre", {}).get("enabled"):
-        try:
-            _add(
-                jobs,
-                seen,
-                _filtered(fetch_mercadolivre(max_pages=sources["mercadolivre"].get("max_pages", 2))),
-            )
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] Mercado Livre falhou: {e}", file=sys.stderr)
+    if on("mercadolivre"):
+        tarefa("mercadolivre", "Mercado Livre falhou",
+               lambda: _filtered(fetch_mercadolivre(max_pages=sources["mercadolivre"].get("max_pages", 2))))
 
-    if sources.get("greenhouse", {}).get("enabled"):
+    if on("greenhouse"):
         for board in sources["greenhouse"].get("boards", []):
-            try:
-                _add(jobs, seen, _filtered(fetch_greenhouse(board, term_filter=titulo_ok)))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Greenhouse falhou para '{board}': {e}", file=sys.stderr)
+            tarefa("greenhouse", f"Greenhouse falhou para '{board}'",
+                   lambda b=board: _filtered(fetch_greenhouse(b, term_filter=titulo_ok)))
 
-    if sources.get("inhire", {}).get("enabled"):
+    if on("inhire"):
         fetch_desc = sources["inhire"].get("fetch_descriptions", True)
         for tenant in sources["inhire"].get("tenants", []):
-            try:
-                # filtro e limite dentro do coletor, pra não buscar descrição de vaga descartada
-                found = fetch_inhire(
-                    tenant, term_filter=titulo_ok, fetch_descriptions=fetch_desc, limit=company_limit
-                )
-                _add(jobs, seen, found)
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] InHire falhou para '{tenant}': {e}", file=sys.stderr)
+            # filtro e limite dentro do coletor, pra não buscar descrição de vaga descartada
+            tarefa("inhire", f"InHire falhou para '{tenant}'",
+                   lambda t=tenant: fetch_inhire(
+                       t, term_filter=titulo_ok, fetch_descriptions=fetch_desc, limit=company_limit))
 
-    if sources.get("lever", {}).get("enabled"):
+    if on("lever"):
         for board in sources["lever"].get("boards", []):
             # item simples ("loadsmart") ou {board, country} pra boards globais
             if isinstance(board, dict):
                 board, country = board["board"], board.get("country", "")
             else:
                 country = ""
-            try:
-                _add(jobs, seen, _filtered(fetch_lever(board, country=country)))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Lever falhou para '{board}': {e}", file=sys.stderr)
+            tarefa("lever", f"Lever falhou para '{board}'",
+                   lambda b=board, c=country: _filtered(fetch_lever(b, country=c)))
 
-    if sources.get("ashby", {}).get("enabled"):
+    if on("ashby"):
         for board in sources["ashby"].get("boards", []):
-            try:
-                _add(jobs, seen, _filtered(fetch_ashby(board)))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Ashby falhou para '{board}': {e}", file=sys.stderr)
+            tarefa("ashby", f"Ashby falhou para '{board}'", lambda b=board: _filtered(fetch_ashby(b)))
 
-    # Gupy por empresa: todas as vagas de empresas grandes (Americanas, Renner...)
+    # Gupy por empresa: todas as vagas de empresas grandes (Renner, Hering...)
     # que não apareceriam só pelos search_terms
-    if sources.get("gupy", {}).get("enabled"):
+    if on("gupy"):
         for empresa in sources["gupy"].get("empresas", []):
-            try:
-                _add(jobs, seen, fetch_gupy_empresa(empresa, term_filter=titulo_ok, limit=company_limit))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Gupy falhou para a empresa '{empresa}': {e}", file=sys.stderr)
+            tarefa("gupy", f"Gupy falhou para a empresa '{empresa}'",
+                   lambda e=empresa: fetch_gupy_empresa(e, term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("shopee", {}).get("enabled"):
-        try:
-            # filtro e limite dentro do coletor, pra não buscar descrição de vaga descartada
-            _add(jobs, seen, fetch_shopee(term_filter=titulo_ok, limit=company_limit))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] Shopee falhou: {e}", file=sys.stderr)
+    if on("shopee"):
+        # filtro e limite dentro do coletor, pra não buscar descrição de vaga descartada
+        tarefa("shopee", "Shopee falhou", lambda: fetch_shopee(term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("tiktok", {}).get("enabled"):
-        try:
-            _add(jobs, seen, fetch_tiktok(term_filter=titulo_ok, limit=company_limit))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] TikTok falhou: {e}", file=sys.stderr)
+    if on("tiktok"):
+        tarefa("tiktok", "TikTok falhou", lambda: fetch_tiktok(term_filter=titulo_ok, limit=company_limit))
 
     # 99 (DiDi): site de vagas próprio da DiDi, filtrado pelo país
-    if sources.get("didi", {}).get("enabled"):
-        try:
-            _add(jobs, seen, fetch_didi(
-                country=sources["didi"].get("country", "Brazil"), term_filter=titulo_ok, limit=company_limit
-            ))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] DiDi/99 falhou: {e}", file=sys.stderr)
+    if on("didi"):
+        tarefa("didi", "DiDi/99 falhou", lambda: fetch_didi(
+            country=sources["didi"].get("country", "Brazil"), term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("workday", {}).get("enabled"):
+    if on("workday"):
         for site in sources["workday"].get("sites", []):
-            try:
-                _add(jobs, seen, fetch_workday(
-                    site["url"], site["empresa"], term_filter=titulo_ok, limit=company_limit
-                ))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Workday falhou para '{site.get('empresa')}': {e}", file=sys.stderr)
+            tarefa("workday", f"Workday falhou para '{site.get('empresa')}'",
+                   lambda s=site: fetch_workday(s["url"], s["empresa"], term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("smartrecruiters", {}).get("enabled"):
+    if on("smartrecruiters"):
         for emp in sources["smartrecruiters"].get("empresas", []):
-            try:
-                _add(jobs, seen, fetch_smartrecruiters(
-                    emp["id"], emp.get("empresa", ""), term_filter=titulo_ok, limit=company_limit
-                ))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] SmartRecruiters falhou para '{emp.get('empresa')}': {e}", file=sys.stderr)
+            tarefa("smartrecruiters", f"SmartRecruiters falhou para '{emp.get('empresa')}'",
+                   lambda e=emp: fetch_smartrecruiters(
+                       e["id"], e.get("empresa", ""), term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("teamtailor", {}).get("enabled"):
+    if on("teamtailor"):
         for site in sources["teamtailor"].get("sites", []):
-            try:
-                _add(jobs, seen, fetch_teamtailor(
-                    site["url"], site["empresa"], term_filter=titulo_ok, limit=company_limit
-                ))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Teamtailor falhou para '{site.get('empresa')}': {e}", file=sys.stderr)
+            tarefa("teamtailor", f"Teamtailor falhou para '{site.get('empresa')}'",
+                   lambda s=site: fetch_teamtailor(s["url"], s["empresa"], term_filter=titulo_ok, limit=company_limit))
 
     # Workable: busca por termo no portal que junta todas as empresas que usam o
     # Workable; a busca casa o termo também na descrição, então passa pelo
     # filtro de título como as fontes por empresa
-    if sources.get("workable", {}).get("enabled"):
+    if on("workable"):
         wk = sources["workable"]
         wk_limit = limit if company_limit is not None else wk.get("limit_per_term", 60)
         for term in terms:
-            try:
-                _add(jobs, seen, fetch_workable(
-                    term, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok
-                ))
-            except Exception as e:  # noqa: BLE001
-                print(f"  [aviso] Workable falhou para '{term}': {e}", file=sys.stderr)
+            tarefa("workable", f"Workable falhou para '{term}'",
+                   lambda t=term: fetch_workable(
+                       t, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok))
 
     # vagas remotas de empresas internacionais que aceitam Brasil/LATAM
-    if sources.get("remoteok", {}).get("enabled"):
-        try:
-            _add(jobs, seen, fetch_remoteok(
-                tags=sources["remoteok"].get("tags"), term_filter=titulo_ok, limit=company_limit
-            ))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] Remote OK falhou: {e}", file=sys.stderr)
+    if on("remoteok"):
+        tarefa("remoteok", "Remote OK falhou", lambda: fetch_remoteok(
+            tags=sources["remoteok"].get("tags"), term_filter=titulo_ok, limit=company_limit))
 
-    if sources.get("remoteio", {}).get("enabled"):
-        try:
-            _add(jobs, seen, fetch_remoteio(
-                locais=sources["remoteio"].get("locais"), areas=sources["remoteio"].get("areas"),
-                term_filter=titulo_ok, limit=company_limit,
-            ))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] Remote.io falhou: {e}", file=sys.stderr)
+    if on("remoteio"):
+        tarefa("remoteio", "Remote.io falhou", lambda: fetch_remoteio(
+            locais=sources["remoteio"].get("locais"), areas=sources["remoteio"].get("areas"),
+            term_filter=titulo_ok, limit=company_limit))
+
+    resultados = _rodar_tarefas(tarefas, config)
+
+    jobs: list[dict] = []
+    seen: set = set()
+    for found in resultados:
+        _add(jobs, seen, found)
 
     # a exclusão vale também pras fontes de busca por termo (a Gupy com
     # "e-commerce" traz vendedor, caixa, estágio...)
     if excludes:
         jobs = [j for j in jobs if not title_matches(j["titulo"], excludes)]
     return jobs
+
+
+# Máximo de buscas simultâneas no MESMO site, pra não parecer ataque nem
+# levar bloqueio (o total geral é collect_workers). beBee é leitura de HTML e
+# já bloqueou acesso automatizado antes — vai mais devagar.
+_SIMULTANEAS_POR_FONTE = {"bebee": 2}
+_SIMULTANEAS_PADRAO = 4
+
+
+def _rodar_tarefas(tarefas: list, config: dict) -> list:
+    """Roda as tarefas de coleta em paralelo e devolve os resultados na ordem
+    das tarefas (tarefa que falhou devolve [] e imprime o aviso)."""
+    limites = {
+        fonte: threading.BoundedSemaphore(_SIMULTANEAS_POR_FONTE.get(fonte, _SIMULTANEAS_PADRAO))
+        for fonte, _, _ in tarefas
+    }
+
+    def _rodar(fonte: str, rotulo: str, fn) -> list:
+        with limites[fonte]:
+            try:
+                return fn() or []
+            except Exception as e:  # noqa: BLE001
+                print(f"  [aviso] {rotulo}: {e}", file=sys.stderr)
+                return []
+
+    resultados: list = [[] for _ in tarefas]
+    total = len(tarefas)
+    if not total:
+        return resultados
+    feitas, proximo_aviso = 0, 0.1
+    workers = max(1, config.get("collect_workers", 16))
+    print(f"  {total} buscas em {len(limites)} fontes, até {workers} ao mesmo tempo...", flush=True)
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        futuros = {ex.submit(_rodar, *t): i for i, t in enumerate(tarefas)}
+        for fut in cf.as_completed(futuros):
+            resultados[futuros[fut]] = fut.result()
+            feitas += 1
+            if feitas / total >= proximo_aviso or feitas == total:
+                print(f"  coleta: {feitas}/{total} buscas concluídas", flush=True)
+                proximo_aviso += 0.1
+    return resultados
 
 
 def score_job(client, cv_text: str, job: dict, questions: dict, preferencias: str = "") -> dict:

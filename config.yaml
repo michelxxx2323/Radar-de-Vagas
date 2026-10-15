@@ -679,8 +679,13 @@ jev_model: "jev-latest"
 
 # Quantas vagas vão pro Jev ao mesmo tempo. Era 1 (sequencial, ~2 h pra
 # repontuar tudo). 15/10/2026: testado com 50 e com 100 vagas simultâneas —
-# 0 falhas, ~1 s por lote. Se aparecerem muitas "falhas ao pontuar", baixe.
-jev_workers: 100
+# 0 falhas, ~1 s por lote. 15/10/2026: subindo pra 400 (a confirmar na
+# próxima rodada). Se aparecerem muitas "falhas ao pontuar", baixe.
+jev_workers: 400
+
+# Quantas buscas da coleta rodam ao mesmo tempo (no total). Por site, o limite
+# é menor (4; beBee 2) — ver _SIMULTANEAS_POR_FONTE no screen.py.
+collect_workers: 16
 
 # Nota mínima (0-10) para a vaga entrar no relatório final. Use 0 para ver tudo.
 min_score: 0

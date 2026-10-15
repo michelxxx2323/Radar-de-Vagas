@@ -26,7 +26,9 @@ from ._util import strip_html
 LEVER_URL = "https://api.lever.co/v0/postings/{company}"
 
 
-def fetch_lever(company: str) -> list[dict]:
+def fetch_lever(company: str, country: str = "") -> list[dict]:
+    """`country` (ex. "BR") fica só com vagas daquele país (campo `country` da
+    API) — pra boards globais como o da Lalamove, com poucas vagas no Brasil."""
     resp = requests.get(LEVER_URL.format(company=company), params={"mode": "json"}, timeout=20)
     if resp.status_code == 404:
         return []  # slug inválido, ou a empresa não usa Lever (ou não é pública)
@@ -37,6 +39,8 @@ def fetch_lever(company: str) -> list[dict]:
 
     jobs = []
     for j in postings:
+        if country and (j.get("country") or "").upper() != country.upper():
+            continue
         titulo = j.get("text", "")
         categories = j.get("categories") or {}
         cidade = categories.get("location", "") or j.get("country", "") or ""

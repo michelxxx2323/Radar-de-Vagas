@@ -562,6 +562,34 @@ def test_didi_parsing():
     print("OK  test_didi_parsing")
 
 
+def test_workable_parsing():
+    from collectors import workable
+    # formato real da API de jobs.workable.com em 15/10/2026 (2 páginas)
+    pag1 = {"totalSize": 3, "nextPageToken": "tok2", "jobs": [
+        {"id": "a1", "title": "Revenue Operations Manager", "state": "published", "workplace": "remote",
+         "description": "<p>Own the <b>RevOps</b> stack.</p>", "requirementsSection": "<ul><li>5+ years</li></ul>",
+         "benefitsSection": "", "url": "https://jobs.workable.com/view/a1", "created": "2026-10-10T12:00:00Z",
+         "location": {"city": "", "subregion": None, "countryName": "Brazil"}, "company": {"title": "Acme"}},
+        {"id": "a2", "title": "Backend Engineer", "state": "published", "workplace": "on_site",
+         "description": "x", "url": "https://jobs.workable.com/view/a2", "location": {}, "company": {"title": "Acme"}},
+    ]}
+    pag2 = {"totalSize": 3, "jobs": [
+        {"id": "a3", "title": "Marketplace Operations Lead", "state": "published", "workplace": "hybrid",
+         "description": "<p>Sellers.</p>", "url": "https://jobs.workable.com/view/a3", "created": "2026-10-01T00:00:00Z",
+         "location": {"city": "São Paulo", "subregion": "State of São Paulo", "countryName": "Brazil"},
+         "company": {"title": "Beta"}},
+    ]}
+    with patch("collectors.workable.requests.get", side_effect=[_FakeResp(pag1), _FakeResp(pag2)]) as m,             patch("collectors.workable.time.sleep"):
+        jobs = workable.fetch_workable("operations", term_filter=["operations"])
+    assert m.call_args_list[1].kwargs["params"]["pageToken"] == "tok2"  # paginou pelo token
+    assert [j["titulo"] for j in jobs] == ["Revenue Operations Manager", "Marketplace Operations Lead"]
+    j = jobs[0]
+    assert j["empresa"] == "Acme" and j["remoto"] is True and j["cidade"] == "Brazil"
+    assert j["descricao"] == "Own the RevOps stack. 5+ years" and j["publicado_em"] == "2026-10-10"
+    assert jobs[1]["cidade"] == "São Paulo" and jobs[1]["remoto"] is False
+    print("OK  test_workable_parsing")
+
+
 def test_title_filter():
     kw = ["negocio", "go to market", "estrateg"]
     assert title_matches("Analista de Novos Negócios Pleno", kw)  # acento ignorado
@@ -771,6 +799,15 @@ def test_ajuste_junior():
         r = rec(t)
         assert r["recomendacao"] == "aplicar_agora" and r["ajuste"] == "", t
     assert rec("Analista Júnior", "nao_aplicar")["recomendacao"] == "nao_aplicar"
+    # paga em dólar: júnior não é rebaixado (júnior em USD > sênior no Brasil)
+    for extra in [{"fonte": "remoteok"}, {"salario": "US$ 60,000 a US$ 80,000 /ano"},
+                  {"descricao": "Compensation: $2,500/month, paid in USD."}]:
+        r = ajustar_recomendacao({"titulo": "Junior Business Analyst", "recomendacao": "aplicar_agora", **extra})
+        assert r["recomendacao"] == "aplicar_agora" and r["ajuste"] == "", extra
+    # salário em real não é dólar
+    r = ajustar_recomendacao({"titulo": "Analista Jr de Marketplace", "recomendacao": "aplicar_agora",
+                              "salario": "R$ 5.000 a R$ 6.000", "descricao": "Salário R$ 5.000."})
+    assert r["recomendacao"] == "avaliar"
     print("OK  test_ajuste_junior")
 
 
@@ -975,6 +1012,7 @@ if __name__ == "__main__":
     test_aceita_brasil()
     test_remoteok_remoteio_parsing()
     test_didi_parsing()
+    test_workable_parsing()
     test_title_filter()
     test_descricao_completa()
     test_shopee_tiktok_parsing()

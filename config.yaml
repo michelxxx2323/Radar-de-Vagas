@@ -56,8 +56,9 @@ preferencias: |
   de contas ou parceiros é bem-vinda quando o foco é a performance de
   parceiros já existentes (dados, métricas, P&L, pricing, negociação
   estratégica).
-  NÃO QUERO: vagas cuja função central é vender ou prospectar novos clientes
-  com meta comercial individual (hunter, SDR/BDR, inside sales).
+  NÃO QUERO: vagas de vendas tradicionais que exigem experiência como
+  executivo de vendas (meta de receita individual, SDR/BDR, inside sales).
+  Prospectar e recrutar novos parceiros é bem-vindo.
   REQUISITOS TÉCNICOS: só contam como lacuna séria quando a vaga exige nível
   avançado (ex.: SQL/Python avançado). Barreiras de localização, idioma ou
   elegibilidade continuam valendo.
@@ -223,6 +224,7 @@ sources:
       # 30/09/2026: Americanas SAIU da Gupy (americanas.gupy.io dá 404, 0 vagas).
       # Pelo carreiras.americanas.io, loja -> Pandapé/InfoJobs e escritório ->
       # só LinkedIn. Não dá pra coletar; fica coberta pelo /radar.
+      - "AXIA Energia"        # 05/10/2026 via /radar — "Especialista de eficiência e inteligência comercial"
       - "Lojas Renner"
       - "Cia. Hering"
       - "Grupo Boticário"
@@ -244,6 +246,15 @@ sources:
   weworkremotely:
     enabled: true
     category: "remote-sales-and-marketing-jobs"   # veja outras categorias no site
+
+  # Workable (jobs.workable.com) — 15/10/2026: portal que junta as vagas de
+  # todas as empresas que usam o Workable (muitas startups/tech estrangeiras
+  # no Brasil). Busca por cada search_term, só no país abaixo; passa pelo
+  # filtro de título. Ver collectors/workable.py.
+  workable:
+    enabled: true
+    location: "Brazil"
+    limit_per_term: 60
 
   # 99 (DiDi) — 30/09/2026: a 99 publica no site da DiDi (careers.didiglobal.com),
   # não na Gupy. API JSON do próprio site (ver collectors/didi.py); ~100 vagas
@@ -396,6 +407,9 @@ sources:
       - "rdstation"         # RD Station — tem até vaga de "Revenue Operations" aberta
       - "wildlifestudios"   # Wildlife Studios
       - "pagarme"           # Pagar.me (grupo Stone)
+      - "inter"             # 15/10/2026 via /radar — Banco Inter: "Commercial Manager | Inter Shop",
+                            # Business Analyst Commercial Planning (InterPag), vagas do Marketplace.
+                            # Atenção: a maioria das vagas é em Belo Horizonte (~18 em SP)
       - "arcoeducacao"      # 30/09/2026 via /radar — Arco Educação: "Especialista em Revenue Operations",
                             # Planejamento e Performance Sênior/Coordenação, Analista de Negócios Sênior
       # -- adicionadas em 21/09/2026, rodada de scale-ups/startups --
@@ -521,6 +535,8 @@ sources:
       - "flashapp"    # Flash (HR tech/benefícios) — vagas de Inteligência/Performance Comercial confirmadas
       - "tryjeeves"    # 30/09/2026 via /radar — Jeeves (fintech): "Revenue Operations Analyst" e
                        # "Strategy & Ops Analyst" em São Paulo (o board também tem vagas de fora do Brasil)
+      - board: "lalamove"   # 05/10/2026 via /radar — Lalamove: "Analista Sênior de Estratégia",
+        country: "BR"       # "Analista de Operações de Vendas". Board global (185 vagas) — só Brasil.
       - "ciandt"       # CI&T (consultoria/tech, atua globalmente) — vagas remoto Brasil confirmadas (histórico do projeto, sem coletor até agora)
 
   # API pública da Ashby (Job Board API) — mesma lógica das outras fontes
@@ -660,6 +676,11 @@ limit_per_term: 15
 
 # Modelo do Jev a usar.
 jev_model: "jev-latest"
+
+# Quantas vagas vão pro Jev ao mesmo tempo. Era 1 (sequencial, ~2 h pra
+# repontuar tudo). 15/10/2026: testado com 50 e com 100 vagas simultâneas —
+# 0 falhas, ~1 s por lote. Se aparecerem muitas "falhas ao pontuar", baixe.
+jev_workers: 100
 
 # Nota mínima (0-10) para a vaga entrar no relatório final. Use 0 para ver tudo.
 min_score: 0

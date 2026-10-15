@@ -17,6 +17,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as cf
 import csv
 import datetime as dt
 import hashlib
@@ -45,6 +46,7 @@ from collectors.smartrecruiters import fetch_smartrecruiters
 from collectors.teamtailor import fetch_teamtailor
 from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
+from collectors.workable import fetch_workable
 from collectors.workday import fetch_workday
 from collectors._util import _fold, title_filter, title_matches
 from exportar_excel import write_xlsx
@@ -81,6 +83,20 @@ RECOMENDACAO_ORDEM = {"aplicar_agora": 0, "avaliar": 1, "baixa_prioridade": 2, "
 _CARGO_OPERACIONAL_RE = re.compile(r"\b(analista|analyst|assistente|assistant|auxiliar)\b", re.IGNORECASE)
 _JUNIOR_RE = re.compile(r"\b(j[uú]nior|jr)\b", re.IGNORECASE)
 
+# Regra do Michel (15/10/2026): vaga paga em dólar não tem problema de
+# senioridade — um júnior em USD ganha mais que um sênior no Brasil. Aqui só a
+# detecção objetiva (fonte remota internacional, ou US$/USD no salário ou na
+# descrição); o caso "empresa estrangeira sem salário explícito" fica pro Jev,
+# via preferencias. "R$ 5.000" não conta como dólar.
+_FONTES_DOLAR = {"remoteok", "remoteio", "remotive", "weworkremotely"}
+_DOLAR_RE = re.compile(r"US\$|\bUSD\b|(?<![R$\w])\$\s?\d")
+
+
+def paga_em_dolar(r: dict) -> bool:
+    if r.get("fonte") in _FONTES_DOLAR:
+        return True
+    return bool(_DOLAR_RE.search(f"{r.get('salario') or ''} {r.get('descricao') or ''}"))
+
 
 def ajustar_recomendacao(r: dict) -> dict:
     """Regras determinísticas aplicadas por cima da recomendação do Jev.
@@ -91,6 +107,7 @@ def ajustar_recomendacao(r: dict) -> dict:
         r.get("recomendacao") == "aplicar_agora"
         and _CARGO_OPERACIONAL_RE.search(titulo)
         and _JUNIOR_RE.search(titulo)
+        and not paga_em_dolar(r)
     ):
         r["recomendacao"] = "avaliar"
         r["ajuste"] = "rebaixada de aplicar_agora: analista/assistente júnior"
@@ -293,8 +310,13 @@ def collect_jobs(config: dict) -> list[dict]:
 
     if sources.get("lever", {}).get("enabled"):
         for board in sources["lever"].get("boards", []):
+            # item simples ("loadsmart") ou {board, country} pra boards globais
+            if isinstance(board, dict):
+                board, country = board["board"], board.get("country", "")
+            else:
+                country = ""
             try:
-                _add(jobs, seen, _filtered(fetch_lever(board)))
+                _add(jobs, seen, _filtered(fetch_lever(board, country=country)))
             except Exception as e:  # noqa: BLE001
                 print(f"  [aviso] Lever falhou para '{board}': {e}", file=sys.stderr)
 
@@ -362,6 +384,20 @@ def collect_jobs(config: dict) -> list[dict]:
                 ))
             except Exception as e:  # noqa: BLE001
                 print(f"  [aviso] Teamtailor falhou para '{site.get('empresa')}': {e}", file=sys.stderr)
+
+    # Workable: busca por termo no portal que junta todas as empresas que usam o
+    # Workable; a busca casa o termo também na descrição, então passa pelo
+    # filtro de título como as fontes por empresa
+    if sources.get("workable", {}).get("enabled"):
+        wk = sources["workable"]
+        wk_limit = limit if company_limit is not None else wk.get("limit_per_term", 60)
+        for term in terms:
+            try:
+                _add(jobs, seen, fetch_workable(
+                    term, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok
+                ))
+            except Exception as e:  # noqa: BLE001
+                print(f"  [aviso] Workable falhou para '{term}': {e}", file=sys.stderr)
 
     # vagas remotas de empresas internacionais que aceitam Brasil/LATAM
     if sources.get("remoteok", {}).get("enabled"):
@@ -493,6 +529,7 @@ def score_jobs_with_cache(
     checkpoint=None,
     preferencias: str = "",
     versao: str | None = None,
+    workers: int = 1,
 ):
     """Pontua só as vagas que ainda não estão no histórico; reaproveita a nota das
     demais. O novo histórico contém apenas as vagas desta coleta, então vagas
@@ -505,36 +542,62 @@ def score_jobs_with_cache(
     o histórico antigo + o que já foi pontuado, pra uma queda no meio da rodada
     não jogar fora o trabalho feito.
 
+    `workers`: quantas vagas vão pro Jev ao mesmo tempo (config `jev_workers`).
+
     Retorna (results, novo_cache, n_reaproveitadas, n_pontuadas)."""
-    results: list[dict] = []
+    def _entrada(r: dict) -> dict:
+        e = {f: r[f] for f in CACHE_SCORE_FIELDS}
+        if versao is not None:
+            e["_versao"] = versao
+        return e
+
+    # 1) separa o que dá pra reaproveitar do que precisa ir pro Jev
+    por_indice: dict[int, dict] = {}
     new_cache: dict = {}
-    reaproveitadas = pontuadas = 0
-    for i, job in enumerate(jobs, 1):
+    pendentes: list[tuple[int, str, dict]] = []
+    for idx, job in enumerate(jobs):
         key = normalize_key(job)
         cached = cache.get(key)
-        reusable = (
+        if (
             cached
             and all(f in cached for f in CACHE_SCORE_FIELDS)
             and (versao is None or cached.get("_versao") == versao)
-        )
-        if reusable:
-            r = {**job, **{f: cached[f] for f in CACHE_SCORE_FIELDS}}
-            reaproveitadas += 1
+        ):
+            por_indice[idx] = {**job, **{f: cached[f] for f in CACHE_SCORE_FIELDS}}
+            new_cache[key] = _entrada(por_indice[idx])
         else:
+            pendentes.append((idx, key, job))
+    reaproveitadas = len(por_indice)
+
+    # 2) pontua as pendentes em paralelo (`workers` chamadas simultâneas ao
+    # Jev). Resultados e histórico são tratados só aqui, na thread principal.
+    pontuadas = falhas = 0
+    if pendentes:
+        print(f"  {len(pendentes)} vagas pro Jev, {workers} por vez...", flush=True)
+    with cf.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        futuros = {
+            ex.submit(score_job, client, cv_text, job, questions, preferencias): (idx, key, job)
+            for idx, key, job in pendentes
+        }
+        for fut in cf.as_completed(futuros):
+            idx, key, job = futuros[fut]
             try:
-                r = score_job(client, cv_text, job, questions, preferencias)
+                r = fut.result()
             except JevError as e:
+                falhas += 1
                 print(f"  [aviso] falha ao pontuar '{job['titulo']}' ({job['empresa']}): {e}", file=sys.stderr)
                 continue
+            por_indice[idx] = r
+            new_cache[key] = _entrada(r)
             pontuadas += 1
             if pontuadas % 10 == 0:
-                print(f"  {pontuadas} novas pontuadas ({i}/{len(jobs)} vagas percorridas)", flush=True)
-        results.append(r)
-        new_cache[key] = {f: r[f] for f in CACHE_SCORE_FIELDS}
-        if versao is not None:
-            new_cache[key]["_versao"] = versao
-        if checkpoint and not reusable and pontuadas % 25 == 0:
-            checkpoint({**cache, **new_cache})
+                print(f"  {pontuadas} novas pontuadas (de {len(pendentes)})", flush=True)
+            if checkpoint and pontuadas % 25 == 0:
+                checkpoint({**cache, **new_cache})
+    if falhas:
+        print(f"  [aviso] {falhas} vagas não pontuadas (ficam pra próxima rodada).", file=sys.stderr)
+
+    results = [por_indice[k] for k in sorted(por_indice)]
     return results, new_cache, reaproveitadas, pontuadas
 
 
@@ -626,6 +689,7 @@ def main():
         checkpoint=lambda c: save_cache(cache_path, c),
         preferencias=preferencias,
         versao=versao,
+        workers=config.get("jev_workers", 1),
     )
     save_cache(cache_path, new_cache)
     print(f"  {pontuadas} vagas novas pontuadas, {reaproveitadas} reaproveitadas do histórico.")

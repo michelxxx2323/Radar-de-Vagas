@@ -1,12 +1,12 @@
 # Job Fit Screener — triagem de vagas com IA
 
-Pipeline em Python que **coleta ~3.500 vagas por rodada em 17 fontes**, pede a
+Pipeline em Python que **coleta ~3.500 vagas por rodada em 18 fontes**, pede a
 um modelo de decisão (Jev, da TypeSafe AI) uma nota de aderência de cada vaga
 ao meu currículo e às minhas preferências, e entrega um **ranking em Excel com
 links clicáveis** — separando o que vale aplicar hoje do que não vale o tempo.
 
 > *English summary: a Python pipeline that collects ~3,500 job postings per
-> run from 17 sources (public APIs, ATS boards, RSS), scores each one against
+> run from 18 sources (public APIs, ATS boards, RSS), scores each one against
 > a CV with an LLM-based decision API, and outputs a ranked, clickable Excel
 > report. Includes a labeled evaluation set used to raise ranking accuracy
 > from 52% to 70%, a versioned score cache, and an offline test suite.*
@@ -22,13 +22,13 @@ nos EUA.
 ## O que o projeto faz
 
 ```
- 17 fontes de vagas ──► coleta + deduplicação ──► filtros baratos ──► Jev (IA) ──► regras ──► Excel ranqueado
+ 18 fontes de vagas ──► coleta + deduplicação ──► filtros baratos ──► Jev (IA) ──► regras ──► Excel ranqueado
  (APIs, ATS, RSS)        ~3.500 vagas/rodada     título, local,      nota por     ajustes      aplicar_agora /
                                                  senioridade         vaga         determinís-  avaliar / não
                                                                                   ticos        aplicar
 ```
 
-1. **Coleta** vagas de 17 fontes: Gupy (via o MCP oficial para candidatos),
+1. **Coleta** vagas de 18 fontes: Gupy (via o MCP oficial para candidatos), Workable,
    Greenhouse, InHire, Lever, Ashby, Workday, SmartRecruiters, Teamtailor,
    Amazon, Shopee, TikTok, 99/DiDi, Remotive, We Work Remotely, Remote OK, Remote.io e
    beBee — ~115 empresas acompanhadas individualmente, mais a busca por termo.
@@ -73,7 +73,7 @@ nos EUA.
   da DigiCert.
 - **Resiliência.** Retentativas com backoff para 429/5xx/timeout na API de IA e
   coleta em paralelo nas fontes lentas.
-- **Testes offline.** `selftest.py` roda 21 testes sem rede nem chave: o
+- **Testes offline.** `selftest.py` roda 22 testes sem rede nem chave: o
   parsing de cada fonte (com respostas reais gravadas), filtros, regras de
   ajuste, cache e o fluxo completo com um cliente de IA simulado.
 
@@ -157,7 +157,7 @@ exportar_excel.py      # Excel formatado com links clicáveis
 calibrar.py            # acurácia do ranking contra um gabarito rotulado
 radar_cruzar.py        # /radar: vagas achadas na web x vagas já coletadas
 descobrir_ats.py       # /radar: descobre o sistema de vagas de uma empresa
-selftest.py            # 21 testes offline
+selftest.py            # 22 testes offline
 collectors/            # um coletor por fonte + utilitários (filtros, HTML, local)
 .claude/skills/radar/  # instruções do comando /radar
 config.yaml            # termos, filtros, fontes e empresas
@@ -165,7 +165,7 @@ config.yaml            # termos, filtros, fontes e empresas
 
 ## Limitações conhecidas
 
-- APIs não documentadas (InHire, Shopee, TikTok, DiDi, Amazon, Workday) podem mudar
+- APIs não documentadas (InHire, Shopee, TikTok, DiDi, Workable, Amazon, Workday) podem mudar
   sem aviso; cada coletor tem comentários explicando como foi descoberto e
   como redescobrir.
 - beBee é leitura de HTML e já ficou fora do ar por alguns dias; o script

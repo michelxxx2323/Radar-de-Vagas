@@ -17,7 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from ._util import strip_html, title_matches
+from . import _cache
+from ._util import registrar_board, strip_html, title_matches
 
 SR_URL = "https://api.smartrecruiters.com/v1/companies/{company}/postings"
 _PAGE = 100
@@ -32,6 +33,7 @@ def fetch_smartrecruiters(company: str, empresa: str = "", term_filter="", limit
     while True:
         resp = requests.get(url, params={"country": "br", "limit": _PAGE, "offset": offset}, timeout=30)
         if resp.status_code == 404:
+            registrar_board("smartrecruiters", empresa or company, 0, "404")
             return []  # identificador errado, ou a empresa não usa SmartRecruiters
         resp.raise_for_status()
         data = resp.json()
@@ -41,13 +43,15 @@ def fetch_smartrecruiters(company: str, empresa: str = "", term_filter="", limit
         if not batch or offset >= (data.get("totalFound") or 0):
             break
 
+    registrar_board("smartrecruiters", empresa or company, len(postings))
     escolhidas = [p for p in postings if title_matches(p.get("name") or "", term_filter)]
     if limit is not None:
         escolhidas = escolhidas[:limit]
 
     if fetch_descriptions:
         with ThreadPoolExecutor(_WORKERS) as ex:
-            detalhes = list(ex.map(lambda p: _detail(url, p["id"]), escolhidas))
+            # o detalhe inteiro (descrição + link) vai pro cache; {} = falhou, não guarda
+            detalhes = list(ex.map(lambda p: _detail_em_cache(company, url, p["id"]), escolhidas))
     else:
         detalhes = [{}] * len(escolhidas)
 
@@ -75,6 +79,20 @@ def fetch_smartrecruiters(company: str, empresa: str = "", term_filter="", limit
             }
         )
     return jobs
+
+
+def _detail_em_cache(company: str, url: str, posting_id: str) -> dict:
+    chave = f"smartrecruiters:{company}:{posting_id}"
+    det = _cache.obter(chave)
+    if det is None:
+        det = _detail(url, posting_id)
+        # só o que é usado: o jobAd inteiro tem HTML de layout e dados da empresa
+        det = {"jobAd": {"sections": {k: v for k, v in ((det.get("jobAd") or {}).get("sections") or {}).items()
+                                      if k in ("jobDescription", "qualifications")}},
+               "postingUrl": det.get("postingUrl")} if det else {}
+        if det:
+            _cache.guardar(chave, det)
+    return det
 
 
 def _detail(url: str, posting_id: str) -> dict:

@@ -244,6 +244,9 @@ sources:
       - "Porto"                  # "Analista Planejamento Comercial Sênior (Porto Bank)"
       - "Farmácias Pague Menos"  # "Analista de Planejamento Comercial Sênior"
       - "Swift"                  # "Analista de Planejamento e Inteligência de Vendas SR"
+      # -- 28/10/2026: saíram do Greenhouse (board dava 404) para a Gupy --
+      - "Creditas Soluções Financeiras"   # Creditas
+      - "Zenvia Jobs"                     # Zenvia (CPaaS/martech)
 
   # API pública do Remotive. Vagas remotas/internacionais em inglês.
   remotive:
@@ -286,12 +289,15 @@ sources:
     tags: ["sales", "marketing", "operations", "business", "strategy", "ecommerce",
            "analyst", "account manager", "growth", "product manager", "customer success"]
 
-  # Remote.io: páginas de listagem por local x área (até 20 vagas cada).
+  # Remote.io: 28/10/2026 a listagem virou app em JavaScript; agora lê o sitemap
+  # de vagas ativas e abre a página de cada vaga cuja área e título passam
+  # (ver collectors/remoteio.py). Página aberta vai pro cache e não é aberta de
+  # novo; por rodada, abre no máximo max_novas_por_rodada vagas ainda não vistas.
   remoteio:
     enabled: true
-    locais: ["brazil", "latin-america", "anywhere"]
-    areas: ["", "operations", "sales-partnerships", "business-development", "marketing",
+    areas: ["operations", "sales-partnerships", "business-development", "marketing",
             "product", "finance", "data", "executive-c-suite", "other"]
+    max_novas_por_rodada: 300
 
   # Scraping best-effort do HTML server-rendered da busca da beBee (sem API
   # pública). Cada termo de busca vira até bebee.max_pages_per_term páginas
@@ -408,30 +414,28 @@ sources:
       - "btgpactual"        # BTG Pactual
       - "quintoandar"       # QuintoAndar
       - "ifoodcarreiras"    # iFood
-      - "nubank"            # Nubank
-      - "creditas"          # Creditas
+      # 28/10/2026: nubank saiu daqui para o Ashby; creditas e zenvia (board 404) para a Gupy;
+      # remotecom (404) saiu sem destino encontrado
       - "ebanx"             # EBANX
       - "vtex"              # VTEX
       - "rdstation"         # RD Station — tem até vaga de "Revenue Operations" aberta
       - "wildlifestudios"   # Wildlife Studios
-      - "pagarme"           # Pagar.me (grupo Stone)
+      # 28/10/2026: "pagarme" saiu — board vazio; as vagas da Pagar.me saem no board "stone"
       - "inter"             # 15/10/2026 via /radar — Banco Inter: "Commercial Manager | Inter Shop",
                             # Business Analyst Commercial Planning (InterPag), vagas do Marketplace.
                             # Atenção: a maioria das vagas é em Belo Horizonte (~18 em SP)
       - "arcoeducacao"      # 30/09/2026 via /radar — Arco Educação: "Especialista em Revenue Operations",
                             # Planejamento e Performance Sênior/Coordenação, Analista de Negócios Sênior
       # -- adicionadas em 21/09/2026, rodada de scale-ups/startups --
-      - "zenvia"            # Zenvia (CPaaS/martech)
       - "blip-global"       # Take Blip (conversational AI) — tinha vaga de "Revenue Operations"
-      - "remotecom"         # Remote.com (RH global, contrata remoto p/ LatAm)
       - "agibank"           # Agibank (banco digital)
       - "jusbrasil"         # Jusbrasil (legaltech)
-      - "isaac"             # isaac (fintech de pagamento escolar)
+      - "isaac"             # isaac (fintech de pagamento escolar) — 28/10/2026: board com 0 vagas; o
+                            # "isaac" do Teamtailor é outra empresa (italiana), não migrar pra lá
       # -- adicionadas em 21/09/2026, rodada de expansão gringas + startups --
       - "arenaim"           # Arena.im (EUA, plataforma de engajamento/comunidade) — tinha vaga de BDR Brasil remoto
       - "kunumi"             # Kunumi (IA/data) — tinha vaga de "AI Strategist – Operações"
       - "zupinnovation"      # Zup Innovation (grupo Itaú, consultoria/tech) — atividade confirmada, maioria eng.
-      - "arcoeducacao"       # Arco Educação (edtech) — tinha vaga de Inteligência Comercial
       # -- adicionadas em 22/09/2026, rodada "gringas entrando no Brasil" + europeias --
       - "ebury"              # Ebury (fintech de FX/cross-border, sede Londres/Málaga, controlada pelo Santander) —
                               # lançou o "Ebury Bank" no Brasil e comprou a Bexs; VÁRIAS vagas comerciais abertas em
@@ -539,7 +543,8 @@ sources:
     enabled: true
     boards:
       - "loadsmart"   # Loadsmart (EUA, freight-tech) — vagas remotas Brasil confirmadas: Account Manager, Pricing Analyst, Demand Gen
-      - "justos"      # Justos (insurtech) — atividade confirmada
+      # 28/10/2026: "justos" saiu — o board do Lever dá 404 (o site da Justos ainda
+      # aponta pra ele) e não achei sistema novo
       - "flashapp"    # Flash (HR tech/benefícios) — vagas de Inteligência/Performance Comercial confirmadas
       - "tryjeeves"    # 30/09/2026 via /radar — Jeeves (fintech): "Revenue Operations Analyst" e
                        # "Strategy & Ops Analyst" em São Paulo (o board também tem vagas de fora do Brasil)
@@ -557,6 +562,7 @@ sources:
       - "darkroom"    # Darkroom (EUA/Portugal, growth marketing) — vaga de Creator Manager Brasil remoto confirmada
       - "docplanner"  # Docplanner/Doctoralia (29/09/2026) — "Revenue Operations Specialist | GTM Ops" no LinkedIn;
                       # vagas em Rio/SP/Curitiba e remoto Brasil
+      - "nubank"      # Nubank — 28/10/2026: migrou do Greenhouse (board vazio) pra cá; 97 vagas, 27 em SP
       - "connectly"   # Connectly (EUA/Colômbia, conversational commerce) — vaga de Account Manager Brasil confirmada
       - "oyster"       # Oyster HR (global, plataforma de EOR/RH) — vaga de CS Manager Americas lista São Paulo/Brasil
       - "belvo"        # Belvo (México/Espanha, fintech infra Open Finance) — time em SP, vagas de BDR/Sales Manager confirmadas
@@ -681,6 +687,13 @@ sources:
 
 # Quantas vagas buscar por termo, por fonte (nas fontes que aceitam limite).
 limit_per_term: 15
+
+# 28/10/2026, decisão do Michel: vaga presencial/híbrida em outro país não vai
+# pro Jev (eram ~225 por rodada, quase todas dos boards globais do Greenhouse/
+# Ashby/Lever). Remoto que aceita Brasil/LATAM continua; local vazio ou só
+# "Remote" também. As empresas europeias seguem acompanhadas pelas vagas delas
+# no Brasil. Ver fora_do_brasil em collectors/_util.py.
+descartar_fora_do_brasil: true
 
 # Modelo do Jev a usar.
 jev_model: "jev-latest"

@@ -14,6 +14,7 @@ Rode com: python selftest.py
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import json
 import os
 import sys
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from collectors.amazon import AMAZON_SEARCH_URL, fetch_amazon  # noqa: E402
 from collectors.ashby import ASHBY_URL, fetch_ashby  # noqa: E402
-from collectors.bebee import fetch_bebee, fetch_bebee_descricao  # noqa: E402
+from collectors.bebee import data_relativa, fetch_bebee, fetch_bebee_descricao  # noqa: E402
 from collectors.greenhouse import GREENHOUSE_URL, fetch_greenhouse  # noqa: E402
 from collectors.gupy import GUPY_URL, fetch_gupy  # noqa: E402
 from collectors.inhire import INHIRE_DETAIL_URL, INHIRE_LIST_URL, fetch_inhire  # noqa: E402
@@ -38,7 +39,8 @@ from collectors.teamtailor import fetch_teamtailor  # noqa: E402
 from collectors.workday import fetch_workday, parse_site  # noqa: E402
 from collectors.tiktok import fetch_tiktok  # noqa: E402
 from collectors.weworkremotely import fetch_weworkremotely  # noqa: E402
-from collectors._util import strip_html, title_filter, title_matches  # noqa: E402
+from collectors import _cache  # noqa: E402
+from collectors._util import boards_zerados, limpar_boards, strip_html, title_filter, title_matches  # noqa: E402
 from jev_client import MockJevClient  # noqa: E402
 from screen import (  # noqa: E402
     CACHE_SCORE_FIELDS,
@@ -197,9 +199,18 @@ def test_greenhouse_parsing():
     assert len(filtrados) == 1
     assert filtrados[0]["titulo"] == "Analista de Estratégia e Novos Negócios"
 
-    # board inexistente -> 404 -> lista vazia, sem exceção
+    # board inexistente -> 404 -> lista vazia, sem exceção, mas o board entra na
+    # lista de zerados (o screen.py avisa); board com vaga, não
+    limpar_boards()
     with patch("collectors.greenhouse.requests.get", return_value=_FakeResp({}, status_code=404)):
         assert fetch_greenhouse("empresa-que-nao-usa-greenhouse") == []
+    with patch("collectors.greenhouse.requests.get", return_value=_FakeResp({"jobs": []})):
+        fetch_greenhouse("board-vazio")
+    with patch("collectors.greenhouse.requests.get", return_value=_FakeResp(fake_payload)):
+        fetch_greenhouse("acme", term_filter="nada-bate")
+    assert sorted(boards_zerados()) == [("greenhouse", "board-vazio", "0 vagas publicadas"),
+                                        ("greenhouse", "empresa-que-nao-usa-greenhouse", "404")]
+    limpar_boards()
 
     print("OK  test_greenhouse_parsing")
 
@@ -350,8 +361,11 @@ def test_bebee_parsing():
     assert j["titulo"] == "Analista de Business Development"
     assert j["empresa"] == "Acme Ltda"
     assert j["cidade"] == "São Paulo"
-    assert j["publicado_em"] == "Hoje"
+    assert j["publicado_em"] == dt.date.today().isoformat() and j["publicado_em_texto"] == "Hoje"
     assert j["descricao"] == "Principais atividades: prospecção e negociação B2B"
+    dia = dt.date(2026, 10, 28)
+    assert [data_relativa(t, dia) for t in ("Ontem", "Há 1 dia", "Há 3 dias", "Recrutando")] == \
+        ["2026-10-27", "2026-10-27", "2026-10-25", ""]
     assert j["remoto"] is False
     print("OK  test_bebee_parsing")
 
@@ -517,6 +531,19 @@ def test_aceita_brasil():
     assert aceita_brasil("Remote", "We hire across Latin America.")
     assert not aceita_brasil("Anywhere", "Philadelphia territory.", anywhere_confiavel=False)
     assert aceita_brasil("Anywhere", "Open to candidates in Brazil.", anywhere_confiavel=False)
+
+    # vagas presenciais/híbridas fora do Brasil (locais reais de 28/10/2026)
+    from collectors._util import fora_do_brasil
+    for local in ["Mexico City, Mexico City, Mexico", "London, England", "Melbourne, AU",
+                  "San Francisco, CA • New York, NY • United States", "Germany (Munich - Hybrid)",
+                  "Bogotá / CUN / Colombia", "Zug, Switzerland"]:
+        assert fora_do_brasil(local), local
+    for local in ["São Paulo, SP, BR", "Nova Lima", "Remote", "", "Mexico City; São Paulo",
+                  "Belo Horizonte, Minas Gerais", "Remote - LATAM", "Porto Alegre"]:
+        assert not fora_do_brasil(local), local
+    # remoto com local de fora: fica só se citar Brasil/LATAM
+    assert fora_do_brasil("Remote - US", remoto=True, descricao="US only")
+    assert not fora_do_brasil("Mexico City / Remote", remoto=True, descricao="Hiring across LATAM.")
     print("OK  test_aceita_brasil")
 
 
@@ -538,24 +565,64 @@ def test_remoteok_remoteio_parsing():
     assert jobs[0]["link"] == "https://remoteOK.com/remote-jobs/1"  # termos de uso: linkar o Remote OK
     assert jobs[0]["salario"] == "US$ 60,000 a US$ 80,000 /ano"
 
-    # Remote.io: card da listagem + JSON-LD da página da vaga (formato de 29/09/2026)
-    listagem = """<article><div><a href="/remote-jobs/operations/bizops-lead-at-acme-123" style="x"><h3 style="y">BizOps Lead</h3></a>
-<p style="z">Acme</p>
-<div style="w">
-<span>Argentina, Brazil</span><span>Operations</span></div></div></article>
-<article><div><a href="/remote-jobs/operations/ops-at-usco-456" style="x"><h3 style="y">Operations Manager</h3></a>
-<p style="z">US Co</p>
-<div style="w">
-<span>United States</span><span>Operations</span></div></div></article>"""
-    detalhe = """<script type="application/ld+json">{"@type":"JobPosting","title":"BizOps Lead",
-"description":"<p>Run business operations.</p>","datePosted":"2026-09-29"}</script>"""
-    paginas = {"https://www.remote.io/remote-jobs/brazil/operations": listagem,
-               "https://www.remote.io/remote-jobs/operations/bizops-lead-at-acme-123": detalhe}
-    with patch("collectors.remoteio._get", side_effect=lambda u: paginas[u]):
-        jobs = remoteio.fetch_remoteio(locais=["brazil"], areas=["operations"], term_filter=["lead", "operations"])
+    # Remote.io: sitemap de vagas ativas + JSON-LD da página da vaga (formato de 28/10/2026)
+    def ld(posting):
+        return f'<script type="application/ld+json" data-job-posting="true">{json.dumps(posting)}</script>'
+
+    rio = "https://remote.io/remote-jobs/"
+    sitemap = "".join(f"<url><loc>{rio}{u}</loc></url>" for u in [
+        "operations/bizops-lead-at-acme-123",            # remoto, aceita Brasil
+        "operations/ops-manager-at-usco-456",            # remoto, só EUA
+        "operations/operations-lead-at-gbco-789",        # presencial em Londres
+        "software-development/ops-lead-at-devco-999",    # área fora da lista
+        "operations/chef-at-acme-555",                   # título não passa
+    ])
+    paginas = {
+        remoteio.SITEMAP_ATIVAS: sitemap,
+        rio + "operations/bizops-lead-at-acme-123": ld({
+            "@type": "JobPosting", "title": "BizOps Lead", "description": "<p>Run business operations.</p>",
+            "datePosted": "2026-10-28T10:00:00Z", "jobLocationType": "TELECOMMUTE",
+            "hiringOrganization": {"name": "Acme"},
+            "applicantLocationRequirements": [{"@type": "Country", "name": "Brazil"},
+                                              {"@type": "Country", "name": "Argentina"}],
+            "baseSalary": {"currency": "USD", "value": {"minValue": 60000, "maxValue": 80000}}}),
+        rio + "operations/ops-manager-at-usco-456": ld({
+            "@type": "JobPosting", "title": "Ops Manager", "description": "US only",
+            "jobLocationType": "TELECOMMUTE", "applicantLocationRequirements": {"name": "United States"}}),
+        rio + "operations/operations-lead-at-gbco-789": ld({
+            "@type": "JobPosting", "title": "Operations Lead", "description": "London office",
+            "jobLocation": {"address": {"addressLocality": "London", "addressCountry": "GB"}}}),
+    }
+    abertas = []
+
+    def _get(u):
+        abertas.append(u)
+        return paginas[u]
+
+    _cache._DADOS.clear()
+    with patch("collectors.remoteio._get", side_effect=_get):
+        jobs = remoteio.fetch_remoteio(areas=["operations"], term_filter=["lead", "manager"])
     assert [j["titulo"] for j in jobs] == ["BizOps Lead"]
-    assert jobs[0]["descricao"] == "Run business operations."
-    assert jobs[0]["id"] == "remoteio:123"
+    j = jobs[0]
+    assert (j["id"], j["empresa"], j["descricao"], j["publicado_em"]) == \
+        ("remoteio:123", "Acme", "Run business operations.", "2026-10-28")
+    assert j["cidade"] == "Remoto internacional — Brazil, Argentina" and j["salario"] == "USD 60,000 a 80,000"
+    assert len(abertas) == 4  # sitemap + 3 vagas: área e título errados nem são abertos
+
+    # 2ª rodada: as 3 vagas (aceita ou não) vêm do cache, só o sitemap é baixado
+    abertas.clear()
+    with patch("collectors.remoteio._get", side_effect=_get):
+        assert [j["id"] for j in remoteio.fetch_remoteio(areas=["operations"], term_filter=["lead", "manager"])] \
+            == ["remoteio:123"]
+    assert abertas == [remoteio.SITEMAP_ATIVAS]
+
+    # max_novas: abre só as mais recentes (id maior) e deixa o resto pra próxima
+    _cache._DADOS.clear()
+    abertas.clear()
+    with patch("collectors.remoteio._get", side_effect=_get):
+        remoteio.fetch_remoteio(areas=["operations"], term_filter=["lead", "manager"], max_novas=1)
+    assert abertas == [remoteio.SITEMAP_ATIVAS, rio + "operations/operations-lead-at-gbco-789"]
+    _cache._DADOS.clear()
     print("OK  test_remoteok_remoteio_parsing")
 
 
@@ -639,15 +706,23 @@ def test_title_filter():
         detalhes_buscados.append(url)
         return _FakeResp({"description": "x"})
 
+    _cache._DADOS.clear()
     with patch("collectors.inhire.requests.get", side_effect=fake_get):
         jobs = fetch_inhire("vr", term_filter=kw)
     assert [j["titulo"] for j in jobs] == ["Analista de Novos Negócios", "Especialista de Estratégia"]
     assert len(detalhes_buscados) == 2  # a vaga de engenharia nem teve a descrição buscada
 
+    # rodada seguinte: as descrições vêm do cache, nenhum detalhe é baixado de novo
     detalhes_buscados.clear()
+    with patch("collectors.inhire.requests.get", side_effect=fake_get):
+        jobs = fetch_inhire("vr", term_filter=kw)
+    assert [j["descricao"] for j in jobs] == ["x", "x"] and detalhes_buscados == []
+
+    _cache._DADOS.clear()
     with patch("collectors.inhire.requests.get", side_effect=fake_get):
         jobs = fetch_inhire("vr", term_filter=kw, limit=1)
     assert len(jobs) == 1 and len(detalhes_buscados) == 1
+    _cache._DADOS.clear()
 
     print("OK  test_title_filter")
 
@@ -824,6 +899,13 @@ def test_ajuste_junior():
     r = ajustar_recomendacao({"titulo": "Analista Jr de Marketplace", "recomendacao": "aplicar_agora",
                               "salario": "R$ 5.000 a R$ 6.000", "descricao": "Salário R$ 5.000."})
     assert r["recomendacao"] == "avaliar"
+    # gap crítico apontado pelo próprio Jev: aplicar_agora cai para avaliar
+    r = ajustar_recomendacao({"titulo": "Gestor de Marketplace", "recomendacao": "aplicar_agora",
+                              "gap_critico": "sim"})
+    assert r["recomendacao"] == "avaliar" and "requisito obrigatório" in r["ajuste"]
+    r = ajustar_recomendacao({"titulo": "Gestor de Marketplace", "recomendacao": "aplicar_agora",
+                              "gap_critico": "não"})
+    assert r["recomendacao"] == "aplicar_agora" and r["ajuste"] == ""
     print("OK  test_ajuste_junior")
 
 
@@ -848,6 +930,14 @@ def test_cache_versao():
     # versão nova (ex.: preferências mudaram) -> repontua
     _, _, reap, pont = score_jobs_with_cache(MockJevClient(), cv_text, [job], q, cache1, versao="outra")
     assert (reap, pont) == (0, 1)
+    # modelo: gravado na entrada; outro modelo repontua; entrada antiga, sem
+    # modelo gravado, vale para o modelo atual (não repontua tudo de uma vez)
+    _, cache2, _, _ = score_jobs_with_cache(MockJevClient(), cv_text, [job], q, {}, versao=v1, modelo="jev-a")
+    assert cache2[normalize_key(job)]["_modelo"] == "jev-a"
+    _, _, reap, pont = score_jobs_with_cache(MockJevClient(), cv_text, [job], q, cache2, versao=v1, modelo="jev-b")
+    assert (reap, pont) == (0, 1)
+    _, _, reap, pont = score_jobs_with_cache(MockJevClient(), cv_text, [job], q, cache1, versao=v1, modelo="jev-b")
+    assert (reap, pont) == (1, 0)
     print("OK  test_cache_versao")
 
 
@@ -1058,23 +1148,27 @@ def test_bebee_descricao_completa_repontua():
     assert "_desc_completa" not in cache[normalize_key(vaga())]
 
     # rodada nova: busca a página, e a nota antiga é refeita uma vez
+    _cache._DADOS.clear()
     job = vaga()
     with patch("collectors.bebee.fetch_bebee_descricao", return_value="Requisitos: SQL avançado. " * 50) as m:
-        assert completar_descricoes_bebee([job], cache, versao) == 1
+        assert completar_descricoes_bebee([job]) == 1
     assert m.call_count == 1 and job["_desc_completa"] and job["descricao"].startswith("Requisitos")
     _, cache2, reaproveitadas, pontuadas = score_jobs_with_cache(
         MockJevClient(), cv_text, [job], questions, cache, versao=versao)
     assert (reaproveitadas, pontuadas) == (0, 1)
     assert cache2[normalize_key(job)]["_desc_completa"] is True
 
-    # rodada seguinte: nada a baixar, nota reaproveitada, marca mantida
+    # rodada seguinte: a página vem do cache de descrições (nada a baixar), o
+    # vagas_coletadas.json fica com o texto inteiro e a nota é reaproveitada
     job3 = vaga()
     with patch("collectors.bebee.fetch_bebee_descricao", side_effect=AssertionError("não devia baixar")):
-        assert completar_descricoes_bebee([job3], cache2, versao) == 0
+        assert completar_descricoes_bebee([job3]) == 1
+    assert job3["descricao"].startswith("Requisitos")
     _, cache3, reaproveitadas, pontuadas = score_jobs_with_cache(
         MockJevClient(), cv_text, [job3], questions, cache2, versao=versao)
     assert (reaproveitadas, pontuadas) == (1, 0)
     assert cache3[normalize_key(job3)]["_desc_completa"] is True
+    _cache._DADOS.clear()
     print("OK  test_bebee_descricao_completa_repontua")
 
 

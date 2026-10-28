@@ -50,7 +50,8 @@ from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
 from collectors.workday import fetch_workday
-from collectors._util import _fold, title_filter, title_matches
+from collectors import _cache as desc_cache
+from collectors._util import _fold, boards_zerados, fora_do_brasil, limpar_boards, title_filter, title_matches
 from exportar_excel import write_xlsx
 from jev_client import JevClient, JevError, MockJevClient
 
@@ -113,6 +114,11 @@ def ajustar_recomendacao(r: dict) -> dict:
     ):
         r["recomendacao"] = "avaliar"
         r["ajuste"] = "rebaixada de aplicar_agora: analista/assistente júnior"
+    # Regra do Michel (28/10/2026): se o próprio Jev diz que falta um requisito
+    # obrigatório, "aplicar agora" se contradiz — no máximo "avaliar"
+    if r.get("recomendacao") == "aplicar_agora" and r.get("gap_critico") == "sim":
+        r["recomendacao"] = "avaliar"
+        r["ajuste"] = "rebaixada de aplicar_agora: o Jev aponta requisito obrigatório não atendido"
     return r
 
 
@@ -354,10 +360,16 @@ def collect_jobs(config: dict) -> list[dict]:
 
     if on("remoteio"):
         tarefa("remoteio", "Remote.io falhou", lambda: fetch_remoteio(
-            locais=sources["remoteio"].get("locais"), areas=sources["remoteio"].get("areas"),
-            term_filter=titulo_ok, limit=company_limit))
+            areas=sources["remoteio"].get("areas"), term_filter=titulo_ok, limit=company_limit,
+            max_novas=sources["remoteio"].get("max_novas_por_rodada", 300)))
 
+    limpar_boards()
     resultados = _rodar_tarefas(tarefas, config)
+    # board/empresa sem nenhuma vaga publicada: o aviso de "fonte vazia" (no
+    # main) só pega a fonte inteira, não uma empresa que mudou de sistema
+    for fonte, board, motivo in sorted(boards_zerados()):
+        print(f"  [aviso] {fonte} '{board}': {motivo} — a empresa pode ter mudado de sistema de "
+              f"vagas (python descobrir_ats.py \"{board}\").", file=sys.stderr)
 
     jobs: list[dict] = []
     seen: set = set()
@@ -368,6 +380,13 @@ def collect_jobs(config: dict) -> list[dict]:
     # "e-commerce" traz vendedor, caixa, estágio...)
     if excludes:
         jobs = [j for j in jobs if not title_matches(j["titulo"], excludes)]
+
+    if config.get("descartar_fora_do_brasil", True):
+        antes = len(jobs)
+        jobs = [j for j in jobs if not fora_do_brasil(
+            f"{j.get('cidade') or ''} {j.get('estado') or ''}", bool(j.get("remoto")), j.get("descricao") or "")]
+        if antes > len(jobs):
+            print(f"  {antes - len(jobs)} vagas presenciais/híbridas fora do Brasil descartadas.")
     return jobs
 
 
@@ -518,6 +537,7 @@ def score_jobs_with_cache(
     preferencias: str = "",
     versao: str | None = None,
     workers: int = 1,
+    modelo: str | None = None,
 ):
     """Pontua só as vagas que ainda não estão no histórico; reaproveita a nota das
     demais. O novo histórico contém apenas as vagas desta coleta, então vagas
@@ -532,11 +552,17 @@ def score_jobs_with_cache(
 
     `workers`: quantas vagas vão pro Jev ao mesmo tempo (config `jev_workers`).
 
+    `modelo` (o jev_model), se passado, é gravado em cada entrada; uma entrada
+    dada por outro modelo é repontuada. Entrada sem modelo gravado (de antes de
+    28/10/2026) vale para o modelo atual — senão a mudança repontuaria tudo.
+
     Retorna (results, novo_cache, n_reaproveitadas, n_pontuadas)."""
     def _entrada(r: dict) -> dict:
         e = {f: r[f] for f in CACHE_SCORE_FIELDS}
         if versao is not None:
             e["_versao"] = versao
+        if modelo is not None:
+            e["_modelo"] = modelo
         if r.get("_desc_completa"):
             e["_desc_completa"] = True
         if r.get("adicionada_em"):
@@ -554,6 +580,7 @@ def score_jobs_with_cache(
             cached
             and all(f in cached for f in CACHE_SCORE_FIELDS)
             and (versao is None or cached.get("_versao") == versao)
+            and (modelo is None or cached.get("_modelo", modelo) == modelo)
             # nota dada com o resumo da vaga, e agora há a descrição completa: repontua
             and not (job.get("_desc_completa") and not cached.get("_desc_completa"))
         ):
@@ -596,39 +623,40 @@ def score_jobs_with_cache(
     return results, new_cache, reaproveitadas, pontuadas
 
 
-def completar_descricoes_bebee(jobs: list[dict], cache: dict, versao: str, workers: int = 2) -> int:
+def completar_descricoes_bebee(jobs: list[dict], workers: int = 2) -> int:
     """A busca do beBee só traz ~300 caracteres de cada vaga — e o Jev dava nota
     alta sem ver requisitos como "SQL avançado" ou "100% presencial" (caso
-    real de 27/10/2026: 9,3 que caiu para 6,8). Busca a página completa das vagas do beBee que ainda
-    não têm nota dada com a descrição inteira; as que já têm reaproveitam a
-    nota sem baixar nada. Marca as completadas com `_desc_completa`, o que faz
+    real de 27/10/2026: 9,3 que caiu para 6,8). Completa a descrição de todas
+    as vagas do beBee com a página da vaga; a página baixada fica no cache de
+    descrições (collectors/_cache.py) e não é baixada de novo. Até 28/10/2026
+    só baixava a das vagas ainda sem nota, e as demais ficavam com o resumo no
+    vagas_coletadas.json. Marca as completadas com `_desc_completa`, o que faz
     as notas antigas (do resumo) serem refeitas uma vez. `workers` segue o
     limite do beBee em _SIMULTANEAS_POR_FONTE. Retorna quantas completou."""
     from collectors.bebee import fetch_bebee_descricao
 
-    def precisa(job: dict) -> bool:
-        cached = cache.get(normalize_key(job)) or {}
-        return job["fonte"] == "bebee" and not (cached.get("_desc_completa") and cached.get("_versao") == versao)
+    def baixar(link: str) -> str:
+        try:
+            return fetch_bebee_descricao(link)
+        except requests.RequestException:
+            return ""
 
     def completar(job: dict) -> bool:
-        try:
-            texto = fetch_bebee_descricao(job["link"])
-        except requests.RequestException:
-            return False
+        texto = desc_cache.descricao(f"bebee:{job['link']}", lambda: baixar(job["link"]))
         if len(texto) <= len(job.get("descricao") or ""):
             return False
         job["descricao"] = texto
         job["_desc_completa"] = True
         return True
 
-    pendentes = [j for j in jobs if precisa(j)]
-    if not pendentes:
-        return 0
-    print(f"  buscando a descrição completa de {len(pendentes)} vagas do beBee...", flush=True)
+    vagas = [j for j in jobs if j["fonte"] == "bebee"]
+    novas = sum(1 for j in vagas if desc_cache.obter(f"bebee:{j['link']}") is None)
+    if novas:
+        print(f"  buscando a descrição completa de {novas} vagas do beBee...", flush=True)
     with cf.ThreadPoolExecutor(max_workers=workers) as ex:
-        completadas = sum(ex.map(completar, pendentes))
-    if completadas < len(pendentes):
-        print(f"  [aviso] {len(pendentes) - completadas} vagas do beBee ficaram só com o resumo.", file=sys.stderr)
+        completadas = sum(ex.map(completar, vagas))
+    if completadas < len(vagas):
+        print(f"  [aviso] {len(vagas) - completadas} vagas do beBee ficaram só com o resumo.", file=sys.stderr)
     return completadas
 
 
@@ -706,6 +734,12 @@ def main():
         except JevError as e:
             sys.exit(f"{e}")
 
+    out_dir = Path(config.get("output_dir", "output"))
+    out_dir.mkdir(exist_ok=True)
+    # descrições e páginas de vaga já baixadas em rodadas anteriores (collectors/_cache.py)
+    desc_cache_path = out_dir / "descricoes.json"
+    desc_cache.carregar(desc_cache_path)
+
     print("Coletando vagas...")
     jobs = collect_jobs(config)
     print(f"  {len(jobs)} vagas únicas coletadas.")
@@ -723,9 +757,6 @@ def main():
         print("Nenhuma vaga encontrada — confira os termos de busca e as fontes no config.yaml.")
         return
 
-    out_dir = Path(config.get("output_dir", "output"))
-    out_dir.mkdir(exist_ok=True)
-
     # O histórico do modo --mock fica separado, pra notas simuladas nunca
     # contaminarem as reais.
     cache_path = out_dir / ("historico_mock.json" if args.mock else "historico.json")
@@ -740,7 +771,8 @@ def main():
     versao = scoring_version(cv_text, preferencias, questions)
 
     if config.get("sources", {}).get("bebee", {}).get("enabled"):
-        completar_descricoes_bebee(jobs, cache, versao, workers=_SIMULTANEAS_POR_FONTE["bebee"])
+        completar_descricoes_bebee(jobs, workers=_SIMULTANEAS_POR_FONTE["bebee"])
+    desc_cache.salvar(desc_cache_path)
 
     # vagas completas (com descrição) desta coleta — usadas pelo calibrar.py e pelo kit.py
     coletadas_path = out_dir / "vagas_coletadas.json"
@@ -760,6 +792,7 @@ def main():
         preferencias=preferencias,
         versao=versao,
         workers=config.get("jev_workers", 1),
+        modelo=client.model,
     )
     save_cache(cache_path, new_cache)
     print(f"  {pontuadas} vagas novas pontuadas, {reaproveitadas} reaproveitadas do histórico.")

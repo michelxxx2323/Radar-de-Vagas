@@ -21,7 +21,7 @@ import datetime as dt
 
 import requests
 
-from ._util import strip_html
+from ._util import registrar_board, strip_html
 
 LEVER_URL = "https://api.lever.co/v0/postings/{company}"
 
@@ -31,11 +31,13 @@ def fetch_lever(company: str, country: str = "") -> list[dict]:
     API) — pra boards globais como o da Lalamove, com poucas vagas no Brasil."""
     resp = requests.get(LEVER_URL.format(company=company), params={"mode": "json"}, timeout=20)
     if resp.status_code == 404:
+        registrar_board("lever", company, 0, "404")
         return []  # slug inválido, ou a empresa não usa Lever (ou não é pública)
     resp.raise_for_status()
     postings = resp.json()
     if not isinstance(postings, list):
         return []
+    registrar_board("lever", company, len(postings))
 
     jobs = []
     for j in postings:

@@ -1,5 +1,6 @@
 import html as _html
 import re
+import threading
 import unicodedata
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -76,3 +77,68 @@ def aceita_brasil(local: str, descricao: str = "", anywhere_confiavel: bool = Tr
     if ambiguo:
         return bool(_TEXTO_ACEITA_BR.search(_fold(descricao)))
     return False
+
+
+# Fontes "por empresa" trazem o board global inteiro (Melbourne na AB InBev,
+# Lisboa na Ebury, Cidade do México no QuintoAndar). Regra do Michel
+# (28/10/2026): só Brasil, ou remoto que aceita Brasil — vaga presencial/híbrida
+# em outro país não vai pro Jev. Empresa europeia continua acompanhada pelas
+# vagas dela no Brasil. Conservador: só descarta quando o local cita um lugar
+# de fora e nenhum do Brasil; local vazio ou só "Remote" passa.
+_LOCAL_BR = re.compile(
+    r"\b(brasil|brazil|br|bra|sao paulo|sp|rio de janeiro|rj|belo horizonte|curitiba|porto alegre|"
+    r"florianopolis|recife|salvador|fortaleza|brasilia|campinas|barueri|osasco|alphaville|"
+    r"blumenau|joinville|goiania|manaus|belem|vitoria|ribeirao preto|sorocaba|santos|"
+    r"sao jose|uberlandia|londrina|maringa|natal|joao pessoa|cuiaba|campo grande|nova lima|"
+    r"minas gerais|parana|santa catarina|rio grande do sul|bahia|pernambuco|ceara|goias|"
+    r"distrito federal|espirito santo|amazonas|para|mato grosso)\b"
+)
+_LOCAL_FORA = re.compile(
+    r"\b(united states|usa|us|u\.s\.|canada|toronto|vancouver|montreal|new york|nyc|san francisco|"
+    r"seattle|austin|boston|chicago|los angeles|denver|atlanta|miami|dallas|houston|washington|"
+    r"mexico|cdmx|guadalajara|monterrey|colombia|bogota|medellin|argentina|buenos aires|chile|"
+    r"santiago de chile|peru|lima|uruguay|montevideo|ecuador|costa rica|"
+    r"united kingdom|uk|england|london|ireland|dublin|portugal|lisbon|lisboa|spain|espana|madrid|"
+    r"barcelona|malaga|germany|berlin|munich|hamburg|france|paris|netherlands|amsterdam|belgium|"
+    r"brussels|switzerland|zurich|zug|geneva|italy|milan|rome|poland|warsaw|krakow|sweden|stockholm|"
+    r"denmark|copenhagen|norway|oslo|finland|helsinki|austria|vienna|czech|prague|romania|"
+    r"bucharest|greece|athens|turkey|istanbul|israel|tel aviv|"
+    r"india|bangalore|bengaluru|hyderabad|mumbai|delhi|pune|singapore|australia|sydney|melbourne|"
+    r"new zealand|japan|tokyo|china|shanghai|beijing|hong kong|taiwan|korea|seoul|philippines|"
+    r"manila|indonesia|jakarta|vietnam|thailand|bangkok|malaysia|kuala lumpur|uae|dubai|"
+    r"saudi arabia|riyadh|south africa|cape town|nigeria|lagos|kenya|nairobi|egypt|cairo)\b"
+)
+
+
+def fora_do_brasil(local: str, remoto: bool = False, descricao: str = "") -> bool:
+    """True se a vaga é claramente de fora do Brasil (ver _LOCAL_FORA)."""
+    loc = _fold(local)
+    if not loc.strip() or _LOCAL_BR.search(loc) or not _LOCAL_FORA.search(loc):
+        return False
+    # remoto com local de fora ("Mexico City / Remote") fica se o local ou a
+    # descrição citar Brasil/LATAM
+    return not (remoto and (aceita_brasil(local) or _TEXTO_ACEITA_BR.search(_fold(descricao))))
+
+
+# Vagas publicadas por cada board/empresa nesta rodada, ANTES do filtro de
+# título. Board que zera quase sempre é empresa que trocou de sistema de vagas
+# (28/10/2026: o Nubank foi do Greenhouse pro Ashby e a Creditas pra Gupy, e as
+# duas sumiram do relatório sem aviso) — o screen.py lista os zerados no fim da
+# coleta. (fonte, board) -> "" se tem vaga, ou o motivo ("0 vagas", "404").
+_BOARDS: dict[tuple[str, str], str] = {}
+_BOARDS_LOCK = threading.Lock()
+
+
+def registrar_board(fonte: str, board: str, total: int, erro: str = "") -> None:
+    with _BOARDS_LOCK:
+        _BOARDS[(fonte, board)] = erro or ("" if total else "0 vagas publicadas")
+
+
+def boards_zerados() -> list[tuple[str, str, str]]:
+    with _BOARDS_LOCK:
+        return [(f, b, motivo) for (f, b), motivo in _BOARDS.items() if motivo]
+
+
+def limpar_boards() -> None:
+    with _BOARDS_LOCK:
+        _BOARDS.clear()

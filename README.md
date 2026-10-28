@@ -35,13 +35,17 @@ nos EUA.
 2. **Filtra antes de gastar IA**: palavras-chave de título (com exclusões como
    "estágio", "loja", "engenheiro"), e — nas vagas remotas internacionais —
    só as que aceitam candidatos no Brasil/LATAM. Isso cortou ~48% das chamadas
-   à API sem perder nenhuma vaga "aplicar agora".
+   à API sem perder nenhuma vaga "aplicar agora". Vaga presencial ou híbrida
+   em outro país (os boards globais trazem Londres, Cidade do México...)
+   também fica de fora (~225 por rodada).
 3. **Pontua cada vaga** com o Jev, mandando currículo + vaga + preferências
    ("quero / não quero"). A nota final combina aderência (55%), senioridade
    (20%), ausência de gap crítico (15%) e confiança do modelo (10%).
 4. **Aplica regras determinísticas** onde a IA erra de forma previsível (ex.:
    "analista júnior" nunca passa de "avaliar"; "especialista" é sempre
-   compatível com a senioridade) e registra o motivo numa coluna `ajuste`.
+   compatível com a senioridade; se o próprio modelo aponta um requisito
+   obrigatório não atendido, a vaga não fica em "aplicar agora") e registra o
+   motivo numa coluna `ajuste`.
 5. **Gera o relatório**: CSV + Excel com cores por recomendação, filtros,
    salário (quando a fonte informa) e link direto para a vaga.
 
@@ -53,10 +57,13 @@ nos EUA.
   o acerto de **52% para 70%**, e que o peso de requisitos técnicos precisava
   cair.
 - **Cache versionado.** Cada nota fica salva com um hash de
-  (currículo + preferências + perguntas + tamanho do texto). Rodadas seguintes
-  só pontuam vagas novas (~1.100 de ~3.500); se o currículo ou as
-  preferências mudam, o hash muda e tudo é repontuado automaticamente. O
-  cache é gravado a cada 25 vagas, então uma queda de rede não perde trabalho.
+  (currículo + preferências + perguntas + tamanho do texto) e o modelo que deu
+  a nota. Rodadas seguintes só pontuam vagas novas (~150 de ~3.500); se o
+  currículo, as preferências ou o modelo mudam, tudo é repontuado
+  automaticamente. O cache é gravado a cada 25 vagas, então uma queda de rede
+  não perde trabalho. As descrições baixadas uma a uma (InHire, Shopee,
+  Workday, beBee...) também ficam guardadas (`output/descricoes.json`), em vez
+  de ~900 páginas rebaixadas por rodada.
 - **Sem navegador automatizado.** Toda fonte usa API pública (documentada ou
   descoberta lendo o tráfego do próprio site), RSS ou HTML já renderizado no
   servidor — mais leve e menos frágil que Selenium/Playwright.
@@ -66,7 +73,9 @@ nos EUA.
   como pedem os termos da API dele.
 - **Falha visível, não silenciosa.** Se uma fonte ligada volta vazia (site
   mudou ou bloqueou), o script avisa no terminal em vez de simplesmente sumir
-  com as vagas dela.
+  com as vagas dela. O mesmo vale para cada empresa: board com 0 vagas ou 404
+  costuma ser empresa que trocou de sistema de vagas (o Nubank foi do
+  Greenhouse pro Ashby), e o aviso já diz como procurar o novo.
 - **Segurança sem atalho.** O servidor de vagas da DiDi não envia o
   certificado intermediário; em vez de desligar a verificação HTTPS (como o
   próprio site faz), o coletor completa a cadeia com o intermediário oficial
@@ -191,9 +200,8 @@ radar_cruzar.py        # /radar: vagas achadas na web x vagas já coletadas
 descobrir_ats.py       # /radar: descobre o sistema de vagas de uma empresa
 web/                   # painel de candidaturas (Vercel): index.html + api/index.py (Flask + Postgres)
 sincronizar.py         # PC -> painel: vagas do dia; painel -> PC: cópia das candidaturas
-candidaturas.py        # estado de cada vaga: para decidir, pronta, enviada...
 selftest.py            # 25 testes offline
-collectors/            # um coletor por fonte + utilitários (filtros, HTML, local)
+collectors/            # um coletor por fonte + utilitários (filtros, HTML, local, cache de descrições)
 .claude/skills/radar/  # instruções do comando /radar
 config.yaml            # termos, filtros, fontes e empresas
 ```
@@ -207,7 +215,11 @@ config.yaml            # termos, filtros, fontes e empresas
   avisa quando isso acontece. A busca dele só traz os primeiros ~300
   caracteres de cada vaga — o Jev chegou a dar 9,3 a uma vaga que, no texto
   inteiro, exigia SQL avançado. Desde 28/10/2026 o script lê a página completa
-  das vagas do beBee ainda sem nota (só as novas, então a 1ª rodada é a lenta).
+  de cada vaga do beBee uma vez e guarda o texto (a 1ª rodada é a lenta).
+- O Remote.io virou app em JavaScript em 28/10/2026; o coletor passou a ler o
+  sitemap de vagas ativas e abrir a página de cada candidata. Como ~1.900
+  vagas passam pelo título, abre até 300 novas por rodada (as mais recentes) —
+  as primeiras rodadas ainda não cobrem tudo.
 - Empresas cujas vagas não estão num sistema que o script lê só aparecem via
   `/radar` — ex.: Americanas (vagas corporativas só no LinkedIn).
 - A nota da IA é uma triagem, não uma decisão: as primeiras rodadas foram

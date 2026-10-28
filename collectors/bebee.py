@@ -14,6 +14,7 @@ um card e ajustar os seletores abaixo.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 
@@ -25,6 +26,23 @@ from ._util import strip_html
 BEBEE_SEARCH_URL = "https://bebee.com/br/jobs"
 _HEADERS = {"Accept": "text/html", "User-Agent": "Mozilla/5.0 (compatible; job-fit-screener/1.0)"}
 _DATE_RE = re.compile(r"(Hoje|Ontem|Há \d+ dias?)")
+
+
+def data_relativa(texto: str, hoje: dt.date | None = None) -> str:
+    """Converte o que o card mostra ("Hoje", "Ontem", "Há 3 dias") em data ISO,
+    contada a partir do dia da coleta. Sem isso não dá pra ordenar nem comparar
+    com as datas das outras fontes. Texto desconhecido vira ""."""
+    hoje = hoje or dt.date.today()
+    if texto == "Hoje":
+        dias = 0
+    elif texto == "Ontem":
+        dias = 1
+    else:
+        m = re.fullmatch(r"Há (\d+) dias?", texto or "")
+        if not m:
+            return ""
+        dias = int(m.group(1))
+    return (hoje - dt.timedelta(days=dias)).isoformat()
 
 
 def fetch_bebee(term: str, max_pages: int = 2) -> list[dict]:
@@ -75,7 +93,8 @@ def fetch_bebee(term: str, max_pages: int = 2) -> list[dict]:
                     "remoto": "remoto" in card_text.lower(),
                     "link": f"https://bebee.com{href}",
                     "descricao": strip_html(resumo.get_text(" ", strip=True) if resumo else card_text),
-                    "publicado_em": date_match.group(1) if date_match else "",
+                    "publicado_em": data_relativa(date_match.group(1)) if date_match else "",
+                    "publicado_em_texto": date_match.group(1) if date_match else "",
                 }
             )
 

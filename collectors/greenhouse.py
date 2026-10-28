@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import requests
 
-from ._util import strip_html, title_matches
+from ._util import registrar_board, strip_html, title_matches
 
 GREENHOUSE_URL = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs"
 
@@ -22,9 +22,11 @@ def fetch_greenhouse(board: str, term_filter="") -> list[dict]:
     url = GREENHOUSE_URL.format(board=board)
     resp = requests.get(url, params={"content": "true"}, timeout=20)
     if resp.status_code == 404:
+        registrar_board("greenhouse", board, 0, "404")
         return []  # board token inválido, ou a empresa não usa Greenhouse (ou não é pública)
     resp.raise_for_status()
     payload = resp.json()
+    registrar_board("greenhouse", board, len(payload.get("jobs") or []))
 
     jobs = []
     for j in payload.get("jobs", []):

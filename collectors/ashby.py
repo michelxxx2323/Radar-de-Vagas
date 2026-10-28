@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import requests
 
-from ._util import strip_html
+from ._util import registrar_board, strip_html
 
 ASHBY_URL = "https://api.ashbyhq.com/posting-api/job-board/{company}"
 
@@ -30,10 +30,12 @@ ASHBY_URL = "https://api.ashbyhq.com/posting-api/job-board/{company}"
 def fetch_ashby(company: str) -> list[dict]:
     resp = requests.get(ASHBY_URL.format(company=company), timeout=20)
     if resp.status_code == 404:
+        registrar_board("ashby", company, 0, "404")
         return []  # slug inválido, ou a empresa não usa Ashby (ou não é pública)
     resp.raise_for_status()
     payload = resp.json()
     postings = payload.get("jobs", []) if isinstance(payload, dict) else []
+    registrar_board("ashby", company, len(postings))
 
     jobs = []
     for j in postings:

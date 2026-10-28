@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
+from . import _cache
 from ._util import strip_html, title_matches
 
 SHOPEE_SEARCH_URL = "https://careers.shopee.com.br/api/positions/search/"
@@ -60,7 +61,9 @@ def fetch_shopee(term_filter="", fetch_descriptions: bool = True, limit: int | N
 
     if fetch_descriptions:
         with ThreadPoolExecutor(_WORKERS) as ex:
-            descricoes = list(ex.map(_fetch_description, [p["id"] for p, _ in escolhidas]))
+            descricoes = list(ex.map(
+                lambda id_: _cache.descricao(f"shopee:{id_}", lambda: _fetch_description(id_)),
+                [p["id"] for p, _ in escolhidas]))
     else:
         descricoes = [""] * len(escolhidas)
 

@@ -25,7 +25,7 @@ import sys
 
 import requests
 
-from ._util import title_matches
+from ._util import registrar_board, title_matches
 
 GUPY_MCP_URL = "https://candidates.mcp.api.gupy.io/mcp"
 # Endpoint antigo (portal.api.gupy.io/api/job) passou a dar 404 em 23/09/2026;
@@ -57,6 +57,7 @@ def fetch_gupy_empresa(career_page_name: str, term_filter="", limit: int | None 
     título. Útil pra empresas grandes cujas vagas não aparecem nos search_terms.
     Só funciona pelo MCP (a API do portal não filtra por empresa)."""
     raw = _paginate_mcp({"careerPageName": career_page_name}, max_items=2000)
+    registrar_board("gupy", career_page_name, len(raw))
     jobs = [_to_job(j) for j in raw]
     jobs = [j for j in jobs if title_matches(j["titulo"], term_filter)]
     return jobs[:limit] if limit is not None else jobs

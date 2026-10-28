@@ -27,7 +27,8 @@ import unicodedata
 
 import requests
 
-from ._util import strip_html, title_matches
+from . import _cache
+from ._util import registrar_board, strip_html, title_matches
 
 INHIRE_LIST_URL = "https://api.inhire.app/job-posts/public/pages"
 INHIRE_DETAIL_URL = "https://api.inhire.app/job-posts/public/pages/{job_id}"
@@ -48,6 +49,16 @@ def _slugify(titulo: str) -> str:
     return slug or "vaga"
 
 
+def _descricao(tenant: str, job_id: str) -> str:
+    try:
+        d = requests.get(INHIRE_DETAIL_URL.format(job_id=job_id), headers={"X-Tenant": tenant}, timeout=20)
+        if d.status_code == 200:
+            return strip_html(d.json().get("description", ""))
+    except requests.RequestException:
+        pass  # segue sem descrição — melhor uma vaga incompleta do que travar a coleta
+    return ""
+
+
 def fetch_inhire(
     tenant: str, term_filter="", fetch_descriptions: bool = True, limit: int | None = None
 ) -> list[dict]:
@@ -56,9 +67,11 @@ def fetch_inhire(
     que é a parte lenta (uma requisição por vaga)."""
     resp = requests.get(INHIRE_LIST_URL, headers={"X-Tenant": tenant}, timeout=20)
     if resp.status_code != 200:
+        registrar_board("inhire", tenant, 0, f"HTTP {resp.status_code}")
         return []
     payload = resp.json()
     raw_jobs = [j for j in payload.get("jobsPage", []) if j.get("status") == "published"]
+    registrar_board("inhire", tenant, len(raw_jobs))
 
     jobs = []
     for j in raw_jobs:
@@ -71,16 +84,7 @@ def fetch_inhire(
         job_id = j.get("jobId")
         descricao = ""
         if fetch_descriptions and job_id:
-            try:
-                d = requests.get(
-                    INHIRE_DETAIL_URL.format(job_id=job_id),
-                    headers={"X-Tenant": tenant},
-                    timeout=20,
-                )
-                if d.status_code == 200:
-                    descricao = strip_html(d.json().get("description", ""))
-            except requests.RequestException:
-                pass  # segue sem descrição — melhor uma vaga incompleta do que travar a coleta
+            descricao = _cache.descricao(f"inhire:{tenant}:{job_id}", lambda: _descricao(tenant, job_id))
 
         workplace = (j.get("workplaceType") or "").lower()
         jobs.append(

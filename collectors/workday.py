@@ -27,7 +27,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from ._util import strip_html, title_matches
+from . import _cache
+from ._util import registrar_board, strip_html, title_matches
 
 _HEADERS = {
     "Content-Type": "application/json",
@@ -58,6 +59,7 @@ def fetch_workday(url: str, empresa: str, term_filter="", limit: int | None = No
     primeira = _post(api, {}, 0)
     facets = _facets_brasil(primeira.get("facets") or [])
     if not facets:
+        registrar_board("workday", empresa, 0, "0 vagas no Brasil")
         return []  # nenhuma localização no Brasil entre as vagas abertas
 
     postings: list[dict] = []
@@ -70,13 +72,14 @@ def fetch_workday(url: str, empresa: str, term_filter="", limit: int | None = No
         if not batch or offset >= (page.get("total") or 0):
             break
 
+    registrar_board("workday", empresa, len(postings))
     escolhidas = [p for p in postings if title_matches(p.get("title") or "", term_filter)]
     if limit is not None:
         escolhidas = escolhidas[:limit]
 
     if fetch_descriptions:
         with ThreadPoolExecutor(_WORKERS) as ex:
-            detalhes = list(ex.map(lambda p: _detail(api, p.get("externalPath", "")), escolhidas))
+            detalhes = list(ex.map(lambda p: _detail_em_cache(tenant, api, p.get("externalPath", "")), escolhidas))
     else:
         detalhes = [{}] * len(escolhidas)
 
@@ -130,6 +133,19 @@ def _facets_brasil(facets: list) -> dict:
         if preferido in achados:
             return {preferido: achados[preferido]}
     return dict(list(achados.items())[:1])
+
+
+def _detail_em_cache(tenant: str, api: str, path: str) -> dict:
+    chave = f"workday:{tenant}:{path}"
+    info = _cache.obter(chave)
+    if info is None:
+        info = _detail(api, path)
+        # só os campos usados abaixo; {} = falhou, não guarda
+        info = {k: info[k] for k in ("title", "location", "remoteType", "externalUrl", "jobDescription",
+                                     "startDate") if info.get(k)}
+        if info:
+            _cache.guardar(chave, info)
+    return info
 
 
 def _detail(api: str, path: str) -> dict:

@@ -15,7 +15,7 @@ from email.utils import parsedate_to_datetime
 
 import requests
 
-from ._util import strip_html, title_matches
+from ._util import registrar_board, strip_html, title_matches
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/128.0.0.0 Safari/537.36"}
@@ -27,6 +27,7 @@ def fetch_teamtailor(site_url: str, empresa: str, term_filter="", limit: int | N
     resp = requests.get(site_url.rstrip("/") + "/jobs.rss", headers=_HEADERS, timeout=30)
     resp.raise_for_status()
     root = ET.fromstring(resp.content)
+    registrar_board("teamtailor", empresa, len(root.findall(".//item")))
 
     jobs = []
     for item in root.iter("item"):

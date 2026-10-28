@@ -22,7 +22,9 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sqlite3
+import uuid
 from functools import wraps
 from pathlib import Path
 
@@ -30,6 +32,9 @@ from flask import Flask, Response, abort, jsonify, request, send_file, session
 
 PAGINA = Path(__file__).resolve().parent.parent / "index.html"
 STATUS = ["decidir", "pulada", "pronta", "enviada", "entrevista", "oferta", "recusada", "encerrada"]
+# igual a candidaturas.CAMPOS_VAGA no PC
+CAMPOS_VAGA = ["titulo", "empresa", "link", "fonte", "nota_fit", "recomendacao", "cidade", "estado",
+               "remoto", "salario", "publicado_em"]
 TIPOS_PEDIDO = {"gerar", "montar", "refazer"}
 
 ESQUEMA = """
@@ -288,6 +293,31 @@ def criar_app(banco: Banco | None = None) -> Flask:
     @navegador
     def notas():
         banco.mudar(entrada(request.json["id"]), notas=request.json["notas"])
+        return jsonify(ok=True)
+
+    @app.post("/api/candidatura")
+    @navegador
+    def candidatura():
+        """Candidatura enviada sem kit: "Já enviei" numa vaga ou o formulário.
+        Mesma regra de candidaturas.candidatura_sem_kit() no PC."""
+        d = request.json or {}
+        titulo, empresa = (d.get("titulo") or "").strip(), (d.get("empresa") or "").strip()
+        if not titulo or not empresa:
+            abort(400, "Preencha a vaga e a empresa.")
+        enviada_em = (d.get("enviada_em") or "").strip() or _hoje()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", enviada_em):
+            abort(400, "Data de envio inválida.")
+        link = (d.get("link") or "").strip() or f"manual:{uuid.uuid4().hex[:12]}"
+        linha = banco.executar("SELECT dados FROM candidaturas WHERE link = %s", (link,), um=True)
+        e = json.loads(linha[0]) if linha else {"id": _chave(link), "link": link, "criado_em": _agora(),
+                                                "historico": [], "notas": ""}
+        # só os campos preenchidos: num registro que já existe, os vazios não apagam nada
+        e.update({k: d[k] for k in CAMPOS_VAGA if d.get(k) not in (None, "")})
+        e.update(titulo=titulo, empresa=empresa, fonte=e.get("fonte") or "manual")
+        campos = {"enviada_em": enviada_em}
+        if (d.get("notas") or "").strip():
+            campos["notas"] = d["notas"].strip()
+        banco.mudar(e, "enviada", **campos)
         return jsonify(ok=True)
 
     @app.get("/api/kit/<id_>")

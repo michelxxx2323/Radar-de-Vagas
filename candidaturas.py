@@ -112,6 +112,32 @@ class Candidaturas:
             self._gravar(dados)
 
 
+def candidatura_sem_kit(dados: dict) -> tuple[dict, dict]:
+    """Uma candidatura enviada sem kit (pelo botão "Já enviei" ou pelo
+    formulário "Adicionar candidatura"): devolve (vaga, campos) para
+    Candidaturas.atualizar(vaga, "enviada", **campos). Sem link (vaga que não
+    veio do relatório), cria um identificador "manual:...". Mesma regra de
+    web/api/index.py. ValueError se faltar vaga ou empresa, ou se a data não
+    for AAAA-MM-DD."""
+    import re
+    import uuid
+
+    titulo, empresa = (dados.get("titulo") or "").strip(), (dados.get("empresa") or "").strip()
+    if not titulo or not empresa:
+        raise ValueError("Preencha a vaga e a empresa.")
+    enviada_em = (dados.get("enviada_em") or "").strip() or dt.date.today().isoformat()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", enviada_em):
+        raise ValueError("Data de envio inválida.")
+    # só os campos preenchidos: num registro que já existe, os vazios não apagam nada
+    vaga = {k: dados[k] for k in CAMPOS_VAGA if dados.get(k) not in (None, "")}
+    vaga.update(titulo=titulo, empresa=empresa, fonte=vaga.get("fonte") or "manual",
+                link=(dados.get("link") or "").strip() or f"manual:{uuid.uuid4().hex[:12]}")
+    campos = {"enviada_em": enviada_em}
+    if (dados.get("notas") or "").strip():
+        campos["notas"] = dados["notas"].strip()
+    return vaga, campos
+
+
 def vagas_para_lista(vagas: list[dict]) -> list[dict]:
     """Vagas do relatório que vão para a aba "Vagas de hoje" (aplicar agora e
     avaliar), só com os campos da lista — sem a descrição."""

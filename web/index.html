@@ -112,6 +112,12 @@
   .funil .qtd { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .funil .rot { font-size: 12px; color: var(--muted); }
 
+  .form-cand { margin-bottom: 16px; max-width: 880px; }
+  .grade-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .grade-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .grade-form input { color: var(--text); }
+  .grade-form .largo { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .grade-form { grid-template-columns: 1fr; } }
   details.puladas { margin-top: 28px; }
   details.puladas summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
 
@@ -242,6 +248,16 @@ function mostrarLogin() {
   document.getElementById("senha").focus();
 }
 document.addEventListener("submit", async e => {
+  if (e.target.id === "form-cand") {
+    e.preventDefault();
+    try {
+      await api("/api/candidatura", formCand);
+      formCand = null; filtroFunil = "ativas";
+      aviso("Candidatura adicionada.");
+      await carregar();
+    } catch (err) { aviso(err.message); }
+    return;
+  }
   if (e.target.id !== "login") return;
   e.preventDefault();
   try {
@@ -315,9 +331,11 @@ function cartaoDecidir(c, pulada) {
   const acoes = c.gerando
     ? `<span class="sub"><span class="giro"></span> ${trabalhando("Montando o kit")}</span>`
     : pulada
-      ? `<button data-acao="montar" data-id="${c.id}">Reconsiderar e montar</button>`
+      ? `<button data-acao="montar" data-id="${c.id}">Reconsiderar e montar</button>
+         <button data-acao="enviada" data-id="${c.id}" title="Já me candidatei, sem kit">Já enviei</button>`
       : `<button class="primario" data-acao="montar" data-id="${c.id}">Montar mesmo assim</button>
-         <button data-acao="pular" data-id="${c.id}">Pular essa vaga</button>`;
+         <button data-acao="pular" data-id="${c.id}">Pular essa vaga</button>
+         <button data-acao="enviada" data-id="${c.id}" title="Já me candidatei, sem kit">Já enviei</button>`;
   return `<div class="cartao">
     <div class="chips"><span class="nota">${nota(c.nota_fit)}</span>${c.fonte ? `<span class="chip s-pulada">${esc(c.fonte)}</span>` : ""}</div>
     <h3>${esc(c.titulo)}</h3>
@@ -365,6 +383,27 @@ function abaProntas() {
 }
 
 // --- Candidaturas ------------------------------------------------------------
+// rascunho do formulário "Adicionar candidatura" (null = fechado); fica fora do
+// HTML para a atualização automática da página não apagar o que foi digitado
+let formCand = null;
+function hojeISO() { return new Date().toLocaleDateString("sv-SE"); }  // AAAA-MM-DD no fuso local
+function formularioCandidatura() {
+  if (!formCand) return `<div class="barra"><button class="primario" data-acao="nova-cand">+ Adicionar candidatura</button>
+    <span class="sub">Para uma vaga enviada sem kit — de outro site, com CV feito no Claude Desktop…</span></div>`;
+  const campo = (nome, rotulo, tipo = "text", extra = "") => `<label>${rotulo}
+    <input name="${nome}" type="${tipo}" value="${esc(formCand[nome] || "")}" ${extra}></label>`;
+  return `<form class="cartao form-cand" id="form-cand">
+    <h3>Adicionar candidatura</h3>
+    <div class="grade-form">
+      ${campo("titulo", "Vaga", "text", "required")}
+      ${campo("empresa", "Empresa", "text", "required")}
+      ${campo("link", "Link da vaga (opcional)", "url", 'placeholder="https://…"')}
+      ${campo("enviada_em", "Enviada em", "date", "required")}
+      <span class="largo">${campo("notas", "Anotações (opcional)")}</span>
+    </div>
+    <div class="acoes"><button class="primario">Salvar como enviada</button>
+      <button type="button" data-acao="cancelar-cand">Cancelar</button></div></form>`;
+}
 function abaCandidaturas() {
   const todas = cand(POS_ENVIO);
   const contas = Object.fromEntries(POS_ENVIO.map(s => [s, todas.filter(c => c.status === s).length]));
@@ -372,16 +411,18 @@ function abaCandidaturas() {
   const botoes = [["ativas", "Em andamento", ativas.length], ...POS_ENVIO.map(s => [s, STATUS[s], contas[s]])];
   const lista = (filtroFunil === "ativas" ? ativas : todas.filter(c => c.status === filtroFunil))
     .sort((a, b) => (b.enviada_em || "").localeCompare(a.enviada_em || ""));
-  const funil = `<div class="funil">${botoes.map(([id, rot, n]) => `
+  const funil = formularioCandidatura() + `<div class="funil">${botoes.map(([id, rot, n]) => `
     <button class="${filtroFunil === id ? "ativa" : ""}" data-acao="funil" data-filtro="${id}">
       <span class="qtd">${n}</span><span class="rot">${esc(rot)}</span></button>`).join("")}</div>`;
-  if (!todas.length) return funil + `<div class="vazio">Nenhuma candidatura enviada ainda. Marque um kit como enviado na aba “Prontas para enviar”.</div>`;
+  if (!todas.length) return funil + `<div class="vazio">Nenhuma candidatura enviada ainda. Use “Já enviei” numa vaga de hoje,
+    “+ Adicionar candidatura” para uma vaga de fora do relatório, ou marque um kit como enviado.</div>`;
   if (!lista.length) return funil + `<div class="vazio">Nenhuma candidatura neste filtro.</div>`;
   return funil + `<div class="rolagem"><table class="tabela"><thead><tr>
     <th>Vaga</th><th>Status</th><th>Enviada em</th><th class="num">Há</th><th>Anotações</th><th></th></tr></thead><tbody>
     ${lista.map(c => `<tr>
-      <td class="vaga"><a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>
-        <div class="sub">${esc(c.empresa)}</div></td>
+      <td class="vaga">${/^https?:/.test(c.link) ? `<a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>`
+          : `<strong>${esc(c.titulo)}</strong>`}
+        <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}</div></td>
       <td><select data-acao="status" data-id="${c.id}">${POS_ENVIO.map(s =>
         `<option value="${s}" ${s === c.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></td>
       <td>${dataBR(c.enviada_em)}</td>
@@ -406,7 +447,7 @@ function abaVagas() {
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
-    <label class="sub"><input type="checkbox" id="semkit" ${f.semKit ? "checked" : ""}> Só as ainda sem kit</label>
+    <label class="sub"><input type="checkbox" id="semkit" ${f.semKit ? "checked" : ""}> Esconder as já tratadas</label>
     <span class="sub">${lista.length} vaga(s)</span></div>`;
   if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
   const linhas = lista.slice(0, f.limite).map(v => {
@@ -414,7 +455,8 @@ function abaVagas() {
     if (v.gerando) acao = `<span class="chip s-pronta"><span class="giro"></span> ${trabalhando("Gerando")}</span>`;
     else if (v.status) acao = chipStatus(v.status) + (["pronta", ...POS_ENVIO].includes(v.status)
       ? ` <button data-acao="abrir" data-id="${v.id}">Abrir</button>` : "");
-    else acao = `<button class="primario" data-acao="gerar" data-link="${esc(v.link)}">Gerar kit</button>`;
+    else acao = `<button data-acao="ja-enviei" data-link="${esc(v.link)}" title="Já me candidatei, sem kit">Já enviei</button>
+      <button class="primario" data-acao="gerar" data-link="${esc(v.link)}">Gerar kit</button>`;
     return `<tr>
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
       <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>
@@ -441,6 +483,18 @@ conteudo.addEventListener("click", async e => {
     else if (acao === "abrir") { abrirGaveta(id); return; }
     else if (acao === "funil") { filtroFunil = b.dataset.filtro; desenhar(); return; }
     else if (acao === "mais") { filtroVagas.limite += 150; desenhar(); return; }
+    else if (acao === "enviada") { await api("/api/status", { id, status: "enviada" }); aviso("Marcada como enviada."); }
+    else if (acao === "ja-enviei") {
+      const v = dados.vagas.find(x => x.link === b.dataset.link);
+      b.disabled = true;
+      await api("/api/candidatura", v);
+      aviso("Marcada como enviada — está na aba Candidaturas.");
+    }
+    else if (acao === "nova-cand") {
+      formCand = { enviada_em: hojeISO() }; desenhar();
+      document.querySelector('#form-cand [name="titulo"]').focus(); return;
+    }
+    else if (acao === "cancelar-cand") { formCand = null; desenhar(); return; }
     await carregar(); agendar();
   } catch (err) { aviso(err.message); b.disabled = false; }
 });
@@ -456,6 +510,7 @@ conteudo.addEventListener("change", async e => {
   } catch (err) { aviso(err.message); }
 });
 conteudo.addEventListener("input", e => {
+  if (formCand && e.target.closest("#form-cand")) { formCand[e.target.name] = e.target.value; return; }
   if (e.target.id !== "busca") return;
   filtroVagas.busca = e.target.value; filtroVagas.limite = 150;
   const pos = e.target.selectionStart;

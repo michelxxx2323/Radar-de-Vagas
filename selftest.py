@@ -1291,6 +1291,23 @@ def test_painel():
         assert e["status"] == "enviada" and e["notas"] == "falar com a Ana" and e["enviada_em"]
         assert cliente.post("/api/gerar", json={"link": "https://nao/existe"}).status_code == 404
         assert cliente.get("/api/kit/naoexiste").status_code == 404
+
+        # candidatura sem kit: "Já enviei" numa vaga do relatório e o formulário (vaga de fora)
+        assert cliente.post("/api/candidatura", json={"titulo": "BA"}).status_code == 400
+        assert cliente.post("/api/candidatura", json={"titulo": "BA", "empresa": "Gama",
+                                                      "enviada_em": "ontem"}).status_code == 400
+        assert cliente.post("/api/candidatura", json={"titulo": "Engenheiro Java", "empresa": "Beta",
+                                                      "link": "https://x/2", "nota_fit": "2.0",
+                                                      "fonte": "gupy"}).status_code == 200
+        assert cliente.post("/api/candidatura", json={"titulo": "Business Analyst", "empresa": "Gama",
+                                                      "enviada_em": "2026-10-20",
+                                                      "notas": "CV do Claude Desktop"}).status_code == 200
+        por_link = {c["link"]: c for c in Candidaturas(out / "kits_mock" / "candidaturas.json").todas()}
+        beta = por_link["https://x/2"]
+        assert beta["status"] == "enviada" and beta["nota_fit"] == "2.0" and beta["enviada_em"] and "pasta" not in beta
+        manual = next(c for l, c in por_link.items() if l.startswith("manual:"))
+        assert (manual["empresa"], manual["fonte"], manual["enviada_em"], manual["notas"]) == \
+            ("Gama", "manual", "2026-10-20", "CV do Claude Desktop")
     print("OK  test_painel")
 
 
@@ -1410,6 +1427,19 @@ def test_nuvem_e_sincronizar():
             velha = {**e, "status": "pronta", "atualizado_em": "2000-01-01T00:00:00+00:00"}
             assert nuvem._req("PUT", "/api/pc/candidaturas", json=[velha])["gravadas"] == 0
             assert navegador.get("/api/painel").get_json()["candidaturas"][0]["status"] == "enviada"
+
+            # candidatura sem kit feita na nuvem chega ao PC
+            assert navegador.post("/api/candidatura", json={"titulo": "X"}).status_code == 400
+            assert navegador.post("/api/candidatura", json={"titulo": "Analista de Growth", "empresa": "Beta",
+                                                            "link": "https://x/2"}).status_code == 200
+            assert navegador.post("/api/candidatura", json={"titulo": "BA", "empresa": "Gama",
+                                                            "enviada_em": "2026-10-20"}).status_code == 200
+            r = sinc.sincronizar(config, nuvem, mock=True)
+            assert (r["baixadas"], r["subidas"]) == (2, 0), r
+            por_link = {c["link"]: c for c in Candidaturas(out / "kits_mock" / "candidaturas.json").todas()}
+            assert por_link["https://x/2"]["status"] == "enviada"
+            manual = next(c for l, c in por_link.items() if l.startswith("manual:"))
+            assert manual["enviada_em"] == "2026-10-20" and manual["fonte"] == "manual"
     print("OK  test_nuvem_e_sincronizar")
 
 

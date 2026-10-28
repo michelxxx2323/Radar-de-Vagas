@@ -30,7 +30,7 @@ import yaml
 from flask import Flask, abort, jsonify, request, send_file
 
 import kit as kitmod
-from candidaturas import CAMPOS_VAGA, Candidaturas, importar_existentes, vagas_para_lista
+from candidaturas import CAMPOS_VAGA, Candidaturas, candidatura_sem_kit, importar_existentes, vagas_para_lista
 
 PORTA = 8765
 PAGINA = Path(__file__).with_name("web") / "index.html"  # a mesma página do painel na nuvem
@@ -172,6 +172,16 @@ def criar_app(painel: Painel) -> Flask:
         painel.estado.atualizar(e, notas=request.json["notas"])
         return jsonify(ok=True)
 
+    @app.post("/api/candidatura")
+    def api_candidatura():
+        """Candidatura enviada sem kit: "Já enviei" numa vaga ou o formulário."""
+        try:
+            vaga, campos = candidatura_sem_kit(request.json or {})
+        except ValueError as e:
+            abort(400, str(e))
+        painel.estado.atualizar(vaga, "enviada", **campos)
+        return jsonify(ok=True)
+
     @app.get("/api/kit/<id_>")
     def api_kit(id_):
         e = entrada(id_)
@@ -199,6 +209,7 @@ def criar_app(painel: Painel) -> Flask:
         os.startfile(alvo)  # noqa: S606 — caminho vem do próprio estado, não da página
         return jsonify(ok=True)
 
+    @app.errorhandler(400)
     @app.errorhandler(404)
     @app.errorhandler(409)
     def erro(e):

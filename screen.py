@@ -28,6 +28,7 @@ import threading
 from collections import Counter
 from pathlib import Path
 
+import requests
 import yaml
 
 from collectors.amazon import fetch_amazon
@@ -536,6 +537,8 @@ def score_jobs_with_cache(
         e = {f: r[f] for f in CACHE_SCORE_FIELDS}
         if versao is not None:
             e["_versao"] = versao
+        if r.get("_desc_completa"):
+            e["_desc_completa"] = True
         return e
 
     # 1) separa o que dá pra reaproveitar do que precisa ir pro Jev
@@ -549,8 +552,11 @@ def score_jobs_with_cache(
             cached
             and all(f in cached for f in CACHE_SCORE_FIELDS)
             and (versao is None or cached.get("_versao") == versao)
+            # nota dada com o resumo da vaga, e agora há a descrição completa: repontua
+            and not (job.get("_desc_completa") and not cached.get("_desc_completa"))
         ):
-            por_indice[idx] = {**job, **{f: cached[f] for f in CACHE_SCORE_FIELDS}}
+            por_indice[idx] = {**job, **{f: cached[f] for f in CACHE_SCORE_FIELDS},
+                               "_desc_completa": job.get("_desc_completa") or cached.get("_desc_completa")}
             new_cache[key] = _entrada(por_indice[idx])
         else:
             pendentes.append((idx, key, job))
@@ -586,6 +592,61 @@ def score_jobs_with_cache(
 
     results = [por_indice[k] for k in sorted(por_indice)]
     return results, new_cache, reaproveitadas, pontuadas
+
+
+def completar_descricoes_bebee(jobs: list[dict], cache: dict, versao: str, workers: int = 2) -> int:
+    """A busca do beBee só traz ~300 caracteres de cada vaga — e o Jev dava nota
+    alta sem ver requisitos como "SQL avançado" ou "100% presencial" (caso
+    real de 27/10/2026: 9,3 que caiu para 6,8). Busca a página completa das vagas do beBee que ainda
+    não têm nota dada com a descrição inteira; as que já têm reaproveitam a
+    nota sem baixar nada. Marca as completadas com `_desc_completa`, o que faz
+    as notas antigas (do resumo) serem refeitas uma vez. `workers` segue o
+    limite do beBee em _SIMULTANEAS_POR_FONTE. Retorna quantas completou."""
+    from collectors.bebee import fetch_bebee_descricao
+
+    def precisa(job: dict) -> bool:
+        cached = cache.get(normalize_key(job)) or {}
+        return job["fonte"] == "bebee" and not (cached.get("_desc_completa") and cached.get("_versao") == versao)
+
+    def completar(job: dict) -> bool:
+        try:
+            texto = fetch_bebee_descricao(job["link"])
+        except requests.RequestException:
+            return False
+        if len(texto) <= len(job.get("descricao") or ""):
+            return False
+        job["descricao"] = texto
+        job["_desc_completa"] = True
+        return True
+
+    pendentes = [j for j in jobs if precisa(j)]
+    if not pendentes:
+        return 0
+    print(f"  buscando a descrição completa de {len(pendentes)} vagas do beBee...", flush=True)
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        completadas = sum(ex.map(completar, pendentes))
+    if completadas < len(pendentes):
+        print(f"  [aviso] {len(pendentes) - completadas} vagas do beBee ficaram só com o resumo.", file=sys.stderr)
+    return completadas
+
+
+def _apagar_relatorios_antigos(out_dir: Path) -> None:
+    """Mantém só o relatório de hoje (vagas_triadas_*.csv/.xlsx e novas_*.csv) —
+    pedido do Michel em 26/10/2026, pra não acumular uma planilha por dia.
+    O histórico de notas fica no historico.json, então nada se perde."""
+    hoje = dt.date.today().isoformat()
+    apagados = 0
+    for padrao in ("vagas_triadas_*.csv", "vagas_triadas_*.xlsx", "novas_*.csv"):
+        for p in out_dir.glob(padrao):
+            if hoje in p.name:
+                continue
+            try:
+                p.unlink()
+                apagados += 1
+            except OSError:
+                pass  # aberto no Excel: fica pra próxima rodada
+    if apagados:
+        print(f"  {apagados} relatórios de dias anteriores apagados (fica só o de hoje).")
 
 
 def main():
@@ -651,12 +712,6 @@ def main():
 
     out_dir = Path(config.get("output_dir", "output"))
     out_dir.mkdir(exist_ok=True)
-    # vagas completas (com descrição) desta coleta — usadas pelo calibrar.py
-    coletadas_path = out_dir / "vagas_coletadas.json"
-    coletadas_path.write_text(json.dumps(jobs, ensure_ascii=False), encoding="utf-8")
-    if args.collect_only:
-        print(f"Vagas salvas em {coletadas_path} (--collect-only: sem pontuação).")
-        return
 
     # O histórico do modo --mock fica separado, pra notas simuladas nunca
     # contaminarem as reais.
@@ -666,6 +721,17 @@ def main():
     preferencias = carregar_preferencias(config)
     questions = build_questions(com_preferencias=bool(preferencias))
     versao = scoring_version(cv_text, preferencias, questions)
+
+    if config.get("sources", {}).get("bebee", {}).get("enabled"):
+        completar_descricoes_bebee(jobs, cache, versao, workers=_SIMULTANEAS_POR_FONTE["bebee"])
+
+    # vagas completas (com descrição) desta coleta — usadas pelo calibrar.py e pelo kit.py
+    coletadas_path = out_dir / "vagas_coletadas.json"
+    coletadas_path.write_text(json.dumps(jobs, ensure_ascii=False), encoding="utf-8")
+    if args.collect_only:
+        print(f"Vagas salvas em {coletadas_path} (--collect-only: sem pontuação).")
+        return
+
     print(f"Pontuando com o Jev ({len(cache)} vagas no histórico, versão {versao})...")
     results, new_cache, reaproveitadas, pontuadas = score_jobs_with_cache(
         client,
@@ -684,6 +750,14 @@ def main():
     min_score = config.get("min_score", 0)
     results = [ajustar_recomendacao(r) for r in results if r["nota_fit"] >= min_score]
     results.sort(key=lambda r: (RECOMENDACAO_ORDEM.get(r["recomendacao"], 9), -r["nota_fit"]))
+
+    # Vagas que nunca tinham aparecido em nenhuma rodada (não estavam no
+    # histórico antes desta). Com histórico vazio ou --no-cache tudo pareceria
+    # "novo", então aí não avisa.
+    if cache and not args.no_cache and not args.mock:
+        from novidades import salvar_e_avisar
+        novas = [r for r in results if normalize_key(r) not in cache]
+        salvar_e_avisar(novas, out_dir, config)
 
     out_path = out_dir / f"vagas_triadas_{dt.date.today().isoformat()}.csv"
 
@@ -721,6 +795,7 @@ def main():
               f"`python exportar_excel.py`.", file=sys.stderr)
 
     print(f"\nRelatório salvo em: {out_path} (e {xlsx_path.name}, com links clicáveis)")
+    _apagar_relatorios_antigos(out_dir)
     print("\nTop 10:")
     for r in results[:10]:
         print(f"  [{r['recomendacao']:15s}] {r['nota_fit']:4.1f}  {r['titulo']} — {r['empresa']} ({r['trilha']})")

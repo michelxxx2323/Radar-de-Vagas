@@ -166,6 +166,12 @@ title_keywords:
 # Cuidado com trechos curtos: "intern" pegaria "Internacional"; "loja" pegaria
 # "LOJAS RENNER | Analista de E-commerce" — por isso "loja " e "de loja".
 title_exclude:
+  # vendas tradicionais (26/10/2026 — preferência: não quer vaga que exige
+  # experiência de executivo de vendas; no relatório de 26/10 todas as 124
+  # vagas com esse título estavam em "nao_aplicar")
+  - "executivo de vendas"
+  - "executivo(a) de vendas"
+  - "executiva de vendas"
   # varejo / loja
   - "loja "
   - "de loja"
@@ -224,6 +230,8 @@ sources:
       # 30/09/2026: Americanas SAIU da Gupy (americanas.gupy.io dá 404, 0 vagas).
       # Pelo carreiras.americanas.io, loja -> Pandapé/InfoJobs e escritório ->
       # só LinkedIn. Não dá pra coletar; fica coberta pelo /radar.
+      - "PagBank"             # 26/10/2026 via /radar — "Gerente de Operações de Canais", Coordenador de
+                              # Canais (Performance & Analytics), Estratégia Comercial, Operações de Vendas
       - "AXIA Energia"        # 05/10/2026 via /radar — "Especialista de eficiência e inteligência comercial"
       - "Lojas Renner"
       - "Cia. Hering"
@@ -682,6 +690,25 @@ jev_model: "jev-latest"
 # 0 falhas, ~1 s por lote. 15/10/2026: subindo pra 400 (a confirmar na
 # próxima rodada). Se aparecerem muitas "falhas ao pontuar", baixe.
 jev_workers: 400
+
+# Aviso de vagas NOVAS (que nunca apareceram antes) — ver novidades.py.
+# 26/10/2026: só "aplicar_agora", qualquer nota. O destino (e-mail via ntfy)
+# fica no .env (NTFY_TOPIC / NTFY_EMAIL), fora do git.
+avisos:
+  recomendacoes: [aplicar_agora]
+  nota_minima: 0
+
+# Kit de candidatura (CV adaptado em PDF + carta + respostas) — ver kit.py. A
+# chave fica no .env (ANTHROPIC_API_KEY); as regras do CV, no regras-cv.md
+# (fora do git). `esforco` (low/medium/high) troca profundidade do raciocínio
+# por custo; medium saiu a ~US$ 0,26 por kit com as regras (28/10/2026; menos
+# nos kits seguintes da mesma rodada, pelo cache). `pasta_pdf`:
+# para onde vai a cópia do PDF (28/10/2026, pedido do Michel: só o PDF, nunca
+# o docx; deixe vazio pra ficar só em output/kits/).
+kit:
+  modelo: "claude-opus-5-5"
+  esforco: "medium"
+  pasta_pdf: "~/OneDrive/Documentos/CVs- Claude"
 
 # Quantas buscas da coleta rodam ao mesmo tempo (no total). Por site, o limite
 # é menor (4; beBee 2) — ver _SIMULTANEAS_POR_FONTE no screen.py.

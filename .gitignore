@@ -3,6 +3,7 @@
 cv.txt
 *.docx
 preferencias.txt
+regras-cv.md
 gabarito.csv
 output/
 
@@ -15,3 +16,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# --- Painel na nuvem (web/) ---
+painel_local.db
+web/.vercel/

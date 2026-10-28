@@ -14,6 +14,7 @@ um card e ajustar os seletores abaixo.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import requests
@@ -82,6 +83,25 @@ def fetch_bebee(term: str, max_pages: int = 2) -> list[dict]:
             break
 
     return jobs
+
+
+def fetch_bebee_descricao(link: str) -> str:
+    """Descrição completa de uma vaga. O card da busca só traz ~300 caracteres;
+    a página da vaga tem o texto inteiro no JSON-LD JobPosting (schema.org) —
+    observado em 27/10/2026. Devolve "" se não achar."""
+    resp = requests.get(link, headers=_HEADERS, timeout=20)
+    if resp.status_code != 200:
+        return ""
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            dados = json.loads(script.string or "")
+        except json.JSONDecodeError:
+            continue
+        for item in dados if isinstance(dados, list) else [dados]:
+            if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                return strip_html(item.get("description", ""))
+    return ""
 
 
 def _find_card(a):

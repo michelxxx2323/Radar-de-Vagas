@@ -73,9 +73,11 @@ nos EUA.
   da DigiCert.
 - **Resiliência.** Retentativas com backoff para 429/5xx/timeout na API de IA e
   coleta em paralelo nas fontes lentas.
-- **Testes offline.** `selftest.py` roda 22 testes sem rede nem chave: o
+- **Testes offline.** `selftest.py` roda 31 testes sem rede nem chave: o
   parsing de cada fonte (com respostas reais gravadas), filtros, regras de
-  ajuste, cache e o fluxo completo com um cliente de IA simulado.
+  ajuste, cache, o fluxo completo com um cliente de IA simulado e o kit de
+  candidatura, o painel e a sincronização com a nuvem (com um Word simulado
+  e SQLite no lugar do Postgres).
 
 ## Radar: achando o que o script não vê
 
@@ -93,6 +95,77 @@ em `.claude/skills/radar/`) resolve isso sob demanda:
 4. `descobrir_ats.py` descobre em qual sistema de vagas a empresa publica e, se
    for um que o script lê, a empresa entra no `config.yaml` — e passa a ser
    coletada automaticamente dali em diante.
+
+## Kit de candidatura: da vaga ao envio
+
+Achar a vaga é metade do trabalho; a outra metade é adaptar o CV e preencher o
+formulário. `kit.py` monta, para as vagas que eu escolho no relatório:
+
+- **CV adaptado em PDF**, no mesmo template dos meus CVs e com exatamente 2
+  páginas: mesmas experiências, cargos e datas do currículo-mestre, com os
+  bullets escolhidos, reordenados e reescritos no vocabulário da vaga (em
+  inglês quando a vaga é em inglês). O PDF vai direto para a pasta de CVs, com
+  o nome no padrão `CV_Michel_<Vaga><Empresa>.pdf`;
+- **carta curta** e **respostas prontas** para as perguntas típicas do formulário.
+
+Como funciona:
+
+1. **Checagem antes de gastar.** Uma chamada barata lista os requisitos
+   *obrigatórios* que eu não atendo (diferencial não conta). Se houver algum,
+   o script pergunta "montar mesmo assim?"; se não, a vaga é pulada e registrada.
+2. **Regras escritas, não implícitas.** O `regras-cv.md` (fora do git) junta
+   tudo o que defini ao longo das candidaturas: formato, ordem das
+   experiências, banco de resultados, quando usar a variante para instituições
+   financeiras e o que eu *não* tenho e nunca pode aparecer.
+3. **2 páginas por construção.** O modelo escreve bullets de sobra, do mais
+   para o menos relevante; o script gera o .docx, pergunta ao Word quantas
+   páginas deu e corta do fim até caber.
+4. **Checagens determinísticas** em cima do texto do modelo: todo número citado
+   (R$, %, anos, SKUs) precisa existir no `cv.txt` ou nas regras, e nenhum
+   termo da lista de proibidos (ex.: Power BI, Python) pode aparecer no CV. O
+   que falhar vai para um checklist "antes de enviar". Dados que o CV não tem
+   (pretensão salarial, data de início) saem como `[marcador]`, nunca chutados.
+5. **Registro.** Cada vaga entra em `output/kits/registro.csv`: lacunas,
+   decisão (montada / pulada), variante e arquivo.
+
+O texto vem do Claude (API da Anthropic) com saída em JSON estruturado; o
+documento é montado pelo script, e nome e contatos nunca passam pelo modelo. O
+envio continua manual, de propósito: candidatura automática em massa exige
+automatizar navegador e contornar CAPTCHA, e é justamente o que o projeto evita.
+
+## Painel: decidir, revisar e acompanhar
+
+Uma página com quatro abas:
+
+- **Para decidir**: vagas em que falta requisito obrigatório, com "Montar
+  mesmo assim" / "Pular essa vaga". Quando o `kit.py` roda sem ninguém no
+  terminal, a vaga cai aqui em vez de ser pulada;
+- **Prontas para enviar**: o PDF na tela, carta e respostas com botão de
+  copiar, e o checklist do que preencher ou conferir antes de enviar;
+- **Candidaturas**: o funil enviada → entrevista → oferta / recusada, com data
+  de envio, dias desde então e anotações;
+- **Vagas de hoje**: o relatório com busca e "Gerar kit".
+
+A mesma página roda em dois lugares:
+
+```
+  PC (como antes)                                   Vercel (de qualquer lugar)
+  screen.py, kit.py, Word, OneDrive                 painel + Postgres (Neon), com senha
+        │                                                 ▲   │
+        └── sincronizar.py ──── sobe vagas, kits, PDFs ───┘   │
+                 ▲                                            │
+                 └──── baixa pedidos ("gerar", "montar") e ◄──┘
+                       mudanças de status / anotações
+```
+
+- **Local** (`python painel.py` ou `abrir_painel.bat`): gera os kits na hora.
+- **Na nuvem** (pasta `web/`, publicada na Vercel): status, anotações e
+  histórico ficam num banco e dá para ver e atualizar do celular. O trabalho
+  pesado continua no PC — Word, pasta do OneDrive, chave da API — então
+  "Gerar kit" pela nuvem vira um pedido que o `sincronizar.py` atende quando o
+  PC está ligado (`instalar_sincronizacao.bat` o deixa rodando escondido).
+  Conflitos se resolvem pela versão mais nova de cada candidatura, e o PC
+  nunca sobrescreve uma mudança mais recente feita na nuvem.
 
 ## Como foi construído
 
@@ -116,8 +189,10 @@ cp cv.exemplo.txt cv.txt          # e cole o texto do seu currículo
 
 Opcional: crie um `preferencias.txt` com o que você quer e não quer (o
 exemplo está no `config.yaml`, bloco `preferencias`) e um `gabarito.csv` no
-formato de `gabarito.exemplo.csv` para calibrar. **`cv.txt`,
-`preferencias.txt`, `gabarito.csv`, `.env` e `output/` ficam fora do git.**
+formato de `gabarito.exemplo.csv` para calibrar. Para o `kit.py`, um
+`regras-cv.md` com as suas regras de CV (formato, fatos, o que nunca colocar).
+**`cv.txt`, `preferencias.txt`, `regras-cv.md`, `gabarito.csv`, `.env` e
+`output/` ficam fora do git.**
 
 ```bash
 python selftest.py                # testes offline, sem rede nem chave
@@ -125,9 +200,14 @@ python screen.py --limit 3        # rodada curta com a API real
 python screen.py                  # rodada completa
 python screen.py --collect-only   # só coleta, sem pontuar
 python calibrar.py                # mede o acerto contra o gabarito
+python kit.py                     # lista as vagas "aplicar agora" do último relatório
+python kit.py 3 8                 # kit de candidatura das vagas 3 e 8 (ANTHROPIC_API_KEY + Word)
+python painel.py                  # painel no navegador: decidir, revisar, acompanhar
+python sincronizar.py             # sobe/baixa o que mudou no painel na nuvem
 ```
 
-O relatório sai em `output/vagas_triadas_<data>.xlsx` (e `.csv`).
+O relatório sai em `output/vagas_triadas_<data>.xlsx` (e `.csv`); os kits, em
+`output/kits/<empresa>_<vaga>/`.
 
 ### Colunas do relatório
 
@@ -157,7 +237,13 @@ exportar_excel.py      # Excel formatado com links clicáveis
 calibrar.py            # acurácia do ranking contra um gabarito rotulado
 radar_cruzar.py        # /radar: vagas achadas na web x vagas já coletadas
 descobrir_ats.py       # /radar: descobre o sistema de vagas de uma empresa
-selftest.py            # 22 testes offline
+kit.py                 # CV adaptado em PDF + carta + respostas para uma vaga
+painel.py              # painel local no navegador (Flask)
+web/                   # painel na nuvem (Vercel): index.html (a página, usada também
+                       #   pelo painel local) e api/index.py (Flask + Postgres)
+sincronizar.py         # PC <-> nuvem: sobe vagas/kits/PDFs, baixa pedidos e status
+candidaturas.py        # estado de cada vaga: para decidir, pronta, enviada...
+selftest.py            # 31 testes offline
 collectors/            # um coletor por fonte + utilitários (filtros, HTML, local)
 .claude/skills/radar/  # instruções do comando /radar
 config.yaml            # termos, filtros, fontes e empresas
@@ -169,8 +255,17 @@ config.yaml            # termos, filtros, fontes e empresas
   sem aviso; cada coletor tem comentários explicando como foi descoberto e
   como redescobrir.
 - beBee é leitura de HTML e já ficou fora do ar por alguns dias; o script
-  avisa quando isso acontece.
+  avisa quando isso acontece. A busca dele só traz os primeiros ~300
+  caracteres de cada vaga — o Jev chegou a dar 9,3 a uma vaga que, no texto
+  inteiro, exigia SQL avançado. Desde 28/10/2026 o script lê a página completa
+  das vagas do beBee ainda sem nota (só as novas, então a 1ª rodada é a lenta).
 - Empresas cujas vagas não estão num sistema que o script lê só aparecem via
   `/radar` — ex.: Americanas (vagas corporativas só no LinkedIn).
 - A nota da IA é uma triagem, não uma decisão: as primeiras rodadas foram
   conferidas manualmente e o gabarito continua sendo a referência.
+
+## Rodar todo dia e receber aviso das vagas novas
+
+1. Clique duas vezes em `instalar_agendamento.bat`. Ele cria a tarefa "Radar de Vagas" no Agendador de Tarefas do Windows, todo dia às 07:00 (outro horário: `instalar_agendamento.bat 08:30`). Se o PC estiver desligado nessa hora, roda quando ligar.
+2. Cada rodada salva o log em `output/run_diario.log` e, além do relatório completo, um `output/novas_<data>.csv` só com as vagas que nunca tinham aparecido antes (nota >= 7.5, "aplicar_agora" ou "avaliar"; ajustável no bloco `avisos` do `config.yaml`).
+3. Aviso no celular (opcional): instale o app ntfy, assine um tópico com nome difícil de adivinhar e coloque esse nome em `NTFY_TOPIC` no `.env` (ou `setx NTFY_TOPIC nome-do-topico`). Detalhes em `novidades.py`.

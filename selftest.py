@@ -15,15 +15,20 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
+import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from collectors.amazon import AMAZON_SEARCH_URL, fetch_amazon  # noqa: E402
 from collectors.ashby import ASHBY_URL, fetch_ashby  # noqa: E402
-from collectors.bebee import fetch_bebee  # noqa: E402
+from collectors.bebee import fetch_bebee, fetch_bebee_descricao  # noqa: E402
 from collectors.greenhouse import GREENHOUSE_URL, fetch_greenhouse  # noqa: E402
 from collectors.gupy import GUPY_URL, fetch_gupy  # noqa: E402
 from collectors.inhire import INHIRE_DETAIL_URL, INHIRE_LIST_URL, fetch_inhire  # noqa: E402
@@ -37,11 +42,18 @@ from collectors.workday import fetch_workday, parse_site  # noqa: E402
 from collectors.tiktok import fetch_tiktok  # noqa: E402
 from collectors.weworkremotely import fetch_weworkremotely  # noqa: E402
 from collectors._util import strip_html, title_filter, title_matches  # noqa: E402
+from candidaturas import Candidaturas, importar_existentes  # noqa: E402
 from jev_client import MockJevClient  # noqa: E402
+from kit import (  # noqa: E402
+    KIT_SCHEMA, REGISTRO_CAMPOS, MockKitClient, cabecalho_cv, carregar_vagas, encaixar_em_2_paginas,
+    escrever_docx, gerar_kit, marcadores, nome_pdf, numeros_nao_encontrados, termos_no_cv, termos_proibidos,
+    titulo_em_uma_linha,
+)
 from screen import (  # noqa: E402
     CACHE_SCORE_FIELDS,
     ajustar_recomendacao,
     build_questions,
+    completar_descricoes_bebee,
     load_cache,
     normalize_key,
     save_cache,
@@ -350,6 +362,18 @@ def test_bebee_parsing():
     assert j["descricao"] == "Principais atividades: prospecção e negociação B2B"
     assert j["remoto"] is False
     print("OK  test_bebee_parsing")
+
+    # a página da vaga traz a descrição inteira no JSON-LD (formato de 27/10/2026)
+    pagina = """<html><head>
+    <script type="application/ld+json">[{"@type": "Organization", "name": "beBee"}]</script>
+    <script type="application/ld+json">{"@type": "JobPosting", "title": "Analista",
+      "description": "<h4><strong>Sobre a vaga</strong></h4>\\nTexto completo &amp; requisitos"}</script>
+    </head><body></body></html>"""
+    with patch("collectors.bebee.requests.get", return_value=_FakeResp(None, text=pagina)):
+        assert fetch_bebee_descricao("https://bebee.com/br/jobs/x") == "Sobre a vaga Texto completo & requisitos"
+    with patch("collectors.bebee.requests.get", return_value=_FakeResp(None, text="<html></html>")):
+        assert fetch_bebee_descricao("https://bebee.com/br/jobs/x") == ""
+    print("OK  test_bebee_descricao")
 
 
 def test_amazon_parsing():
@@ -998,6 +1022,397 @@ def test_scoring_and_ranking_end_to_end():
         print(f"     [{r['recomendacao']:15s}] {r['nota_fit']:4.1f}  {r['titulo']}")
 
 
+def _kit_base(**extra) -> dict:
+    kit = {
+        "idioma": "pt", "variante": "padrao", "titulo_cv": "RevOps", "resumo": "", "carta": "",
+        "experiencias": [], "formacao": [], "certificacoes": [], "competencias_chave": [],
+        "ferramentas": [], "idiomas": [], "respostas": [], "palavras_chave": [],
+    }
+    kit.update(extra)
+    return kit
+
+
+def test_kit_checagens():
+    fontes = "5+ anos. R$300 mil+/ano em receita. Portfólio de 2.000+ SKUs. 03/2015 – 11/2016."
+    kit = _kit_base(
+        resumo="5+ years, R$300K+ in yearly revenue, 2,000+ SKUs. Built Power BI dashboards.",
+        carta="Gerei 37% de crescimento. [sua pretensão salarial]",
+        experiencias=[{"empresa": "X", "cargo": "Y", "periodo": "03/2015 – 11/2016", "local": "",
+                       "linha_extra": "", "bullets": [], "resultados": ""}],
+        respostas=[{"pergunta": "?", "resposta": "Não tenho Python. A partir de [data de início]."}],
+    )
+    suspeitos = numeros_nao_encontrados(kit, fontes)
+    # tradução ("R$300 mil" -> "R$300K", "2.000" -> "2,000") não é suspeita; número inventado é
+    assert len(suspeitos) == 1 and suspeitos[0].startswith("37 "), suspeitos
+    assert marcadores(kit) == ["[sua pretensão salarial]", "[data de início]"]
+
+    regras = """### O que ele NÃO tem (nunca colocar)
+- Power BI, Tableau
+- Python, Databricks
+- Lean / Six Sigma
+
+### Liderança
+- Não teve liderança de pessoas na Empresa X.
+
+### Inferências que já removemos e não devem voltar
+- "recompra"
+- SLAs e handoffs
+- indicadores de pagamentos (TPV, taxa de desconto)
+"""
+    termos = termos_proibidos(regras)
+    assert termos == ["Power BI", "Tableau", "Python", "Databricks", "Lean", "Six Sigma", "recompra",
+                      "SLAs", "handoffs", "indicadores de pagamentos", "TPV", "taxa de desconto"], termos
+    # "Python" só aparece nas respostas, onde negar a ferramenta é honesto
+    assert termos_no_cv(kit, termos) == ["Power BI"]
+
+    assert titulo_em_uma_linha("A" * 40 + " | " + "B" * 30 + " | " + "C" * 20) == "A" * 40 + " | " + "B" * 30
+    assert nome_pdf("NOME", {"titulo": "Analista de Estratégia de Negócios Sênior", "empresa": "Acme"}) \
+        == "CV_Nome_AnalistaEstrategiaNegociosSeniorAcme.pdf"
+    assert nome_pdf("Nome", {"titulo": "Coordenador(a) de Marketplace - São Paulo (Híbrido)",
+                             "empresa": "Acme Brasil Ltda."}) == "CV_Nome_CoordenadorMarketplaceAcmeBrasil.pdf"
+    assert nome_pdf("Nome", {"titulo": "Business Analyst (Senior)", "empresa": "Beta"}) \
+        == "CV_Nome_BusinessAnalystSeniorBeta.pdf"
+    print("OK  test_kit_checagens")
+
+
+class _ConversorFalso:
+    """Faz as vezes do Word: 1 página a cada 40 parágrafos do docx."""
+
+    def paginas(self, docx):
+        from docx import Document
+
+        return 1 + len(Document(docx).paragraphs) // 40
+
+    def pdf(self, docx, destino):
+        destino.write_bytes(b"%PDF-falso")
+
+
+def test_kit_encaixe_2_paginas():
+    cv_text = Path(__file__).with_name("cv.exemplo.txt").read_text(encoding="utf-8")
+    kit, _ = MockKitClient(cv_text, bullets_por_experiencia=30).gerar("", "Vaga: X", KIT_SCHEMA)
+    with tempfile.TemporaryDirectory() as tmp:
+        paginas = encaixar_em_2_paginas(kit, cabecalho_cv(cv_text), Path(tmp) / "cv.docx", _ConversorFalso())
+    assert paginas == 2
+    # cortou (eram 30 + 30), por igual entre as experiências, e nunca a linha de resultados
+    tamanhos = [len(e["bullets"]) for e in kit["experiencias"]]
+    assert sum(tamanhos) < 60 and max(tamanhos) - min(tamanhos) <= 1, tamanhos
+    assert all(e["resultados"] for e in kit["experiencias"])
+    # e só o necessário: com um bullet a mais, já passaria de 2 páginas
+    kit["experiencias"][-1]["bullets"].append("x")
+    with tempfile.TemporaryDirectory() as tmp:
+        escrever_docx(kit, cabecalho_cv(cv_text), Path(tmp) / "cv.docx")
+        assert _ConversorFalso().paginas(Path(tmp) / "cv.docx") == 3
+    print("OK  test_kit_encaixe_2_paginas")
+
+
+def test_kit_mock_end_to_end():
+    cv_text = Path(__file__).with_name("cv.exemplo.txt").read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        (out / "CVs").mkdir()
+        link = "https://exemplo.gupy.io/job/1"
+        with (out / "vagas_triadas_2026-01-01.csv").open("w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=["recomendacao", "nota_fit", "titulo", "empresa", "fonte", "link"])
+            w.writeheader()
+            w.writerow({"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
+                        "empresa": "Empresa Ágil", "fonte": "gupy", "link": link})
+        (out / "vagas_coletadas.json").write_text(json.dumps([{"link": link, "descricao": "Forecast e CRM."}]),
+                                                  encoding="utf-8")
+        vagas = carregar_vagas(out)
+        assert vagas[0]["n"] == 1 and vagas[0]["descricao"] == "Forecast e CRM."
+
+        perguntas = []
+
+        def perguntar(texto):
+            perguntas.append(texto)
+            return False
+
+        pasta = gerar_kit(MockKitClient(cv_text), cv_text, "", "", vagas[0], out / "kits",
+                          conversor=_ConversorFalso(), pasta_pdf=out / "CVs", perguntar=perguntar)
+        assert pasta.name.startswith("Empresa-Agil_Analista-de-RevOps_")
+        arquivo = "CV_Nome_AnalistaRevOpsEmpresaAgil.pdf"
+        assert (pasta / arquivo).exists() and (out / "CVs" / arquivo).exists()
+        assert not list((out / "CVs").glob("*.docx")) and perguntas == []  # só o PDF vai pra pasta
+        md = (pasta / "kit.md").read_text(encoding="utf-8")
+        assert "Carta simulada para Analista de RevOps" in md and "Preencher [sua pretensão salarial]" in md
+        dados = json.loads((pasta / "kit.json").read_text(encoding="utf-8"))
+        assert dados["vaga"]["link"] == link and len(dados["kit"]["experiencias"]) == 2
+        # bullets do mock vêm do próprio CV, então nenhum número fica "a conferir"
+        assert dados["numeros_a_conferir"] == []
+
+        # segunda chamada reaproveita o kit em vez de chamar a API de novo
+        class _NaoChama:
+            def gerar(self, *a, **k):
+                raise AssertionError("não devia gerar de novo")
+        assert gerar_kit(_NaoChama(), cv_text, "", "", vagas[0], out / "kits") == pasta
+
+        # outro kit com o mesmo nome de PDF: pergunta antes de substituir o da pasta
+        (out / "CVs" / arquivo).write_bytes(b"antigo")
+        gerar_kit(MockKitClient(cv_text), cv_text, "", "", {**vagas[0], "link": link + "?2"}, out / "kits",
+                  conversor=_ConversorFalso(), pasta_pdf=out / "CVs", perguntar=perguntar)
+        assert len(perguntas) == 1 and (out / "CVs" / arquivo).read_bytes() == b"antigo"
+
+        # requisito obrigatório faltando + "não montar": pula sem chamar o kit
+        class _ComLacuna(MockKitClient):
+            def gerar(self, instrucoes, mensagem, schema, esforco=None):
+                if "obrigatorios_faltando" in schema["properties"]:
+                    return {"obrigatorios_faltando": [{"requisito": "Espanhol fluente", "motivo": "não fala"}]}, {}
+                raise AssertionError("não devia montar o kit")
+        vaga3 = {**vagas[0], "link": link + "?3"}
+        assert gerar_kit(_ComLacuna(cv_text), cv_text, "", "", vaga3, out / "kits", perguntar=perguntar) is None
+
+        with (out / "kits" / "registro.csv").open(encoding="utf-8-sig") as f:
+            registro = list(csv.DictReader(f))
+        assert [r["decisao"] for r in registro] == ["montada", "montada", "pulada"]
+        assert registro[0]["arquivo"] == arquivo and registro[2]["lacunas"] == "Espanhol fluente"
+    print("OK  test_kit_mock_end_to_end")
+
+
+def test_bebee_descricao_completa_repontua():
+    cv_text = Path("cv.txt").read_text(encoding="utf-8")
+    questions = build_questions()
+    versao = "v1"
+
+    def vaga():
+        return {"id": "bebee:x", "fonte": "bebee", "titulo": "Analista de RevOps Sênior", "empresa": "Acme",
+                "cidade": "São Paulo", "estado": "", "remoto": False, "link": "https://bebee.com/br/jobs/x",
+                "publicado_em": "Hoje", "descricao": "Sobre a vaga Você vai entrar no time... Não buscamos"}
+
+    # nota antiga, dada só com o resumo de 300 caracteres
+    _, cache, _, _ = score_jobs_with_cache(MockJevClient(), cv_text, [vaga()], questions, {}, versao=versao)
+    assert "_desc_completa" not in cache[normalize_key(vaga())]
+
+    # rodada nova: busca a página, e a nota antiga é refeita uma vez
+    job = vaga()
+    with patch("collectors.bebee.fetch_bebee_descricao", return_value="Requisitos: SQL avançado. " * 50) as m:
+        assert completar_descricoes_bebee([job], cache, versao) == 1
+    assert m.call_count == 1 and job["_desc_completa"] and job["descricao"].startswith("Requisitos")
+    _, cache2, reaproveitadas, pontuadas = score_jobs_with_cache(
+        MockJevClient(), cv_text, [job], questions, cache, versao=versao)
+    assert (reaproveitadas, pontuadas) == (0, 1)
+    assert cache2[normalize_key(job)]["_desc_completa"] is True
+
+    # rodada seguinte: nada a baixar, nota reaproveitada, marca mantida
+    job3 = vaga()
+    with patch("collectors.bebee.fetch_bebee_descricao", side_effect=AssertionError("não devia baixar")):
+        assert completar_descricoes_bebee([job3], cache2, versao) == 0
+    _, cache3, reaproveitadas, pontuadas = score_jobs_with_cache(
+        MockJevClient(), cv_text, [job3], questions, cache2, versao=versao)
+    assert (reaproveitadas, pontuadas) == (1, 0)
+    assert cache3[normalize_key(job3)]["_desc_completa"] is True
+    print("OK  test_bebee_descricao_completa_repontua")
+
+
+def _montar_saida(out: Path, vagas: list[dict]) -> None:
+    """Relatório + coleta mínimos, no formato que o screen.py grava."""
+    with (out / "vagas_triadas_2026-01-01.csv").open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=["recomendacao", "nota_fit", "titulo", "empresa", "fonte", "link"])
+        w.writeheader()
+        for v in vagas:
+            w.writerow({k: v[k] for k in w.fieldnames})
+    (out / "vagas_coletadas.json").write_text(
+        json.dumps([{"link": v["link"], "descricao": v["descricao"]} for v in vagas]), encoding="utf-8")
+
+
+def test_kit_sem_resposta_fica_para_decidir():
+    cv_text = Path(__file__).with_name("cv.exemplo.txt").read_text(encoding="utf-8")
+
+    class _ComLacuna(MockKitClient):
+        def gerar(self, instrucoes, mensagem, schema, esforco=None):
+            if "obrigatorios_faltando" in schema["properties"]:
+                return {"obrigatorios_faltando": [{"requisito": "SQL avançado", "motivo": "básico"}]}, {}
+            return super().gerar(instrucoes, mensagem, schema, esforco)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        kits = Path(tmp) / "kits"
+        vaga = {"titulo": "Analista", "empresa": "Acme", "fonte": "gupy", "link": "https://x/1",
+                "nota_fit": "9.0", "descricao": "SQL avançado obrigatório."}
+        # rodando agendado (sem ninguém pra responder): não pula, deixa pra decidir no painel
+        assert gerar_kit(_ComLacuna(cv_text), cv_text, "", "", vaga, kits, perguntar=lambda _p: None) is None
+        estado = Candidaturas(kits / "candidaturas.json")
+        e = estado.todas()[0]
+        assert e["status"] == "decidir" and e["lacunas"][0]["requisito"] == "SQL avançado"
+        assert e["descricao"] == "SQL avançado obrigatório." and not (kits / "registro.csv").exists()
+
+        # decidiu montar: passa as lacunas já checadas, sem checar de novo
+        pasta = gerar_kit(_ComLacuna(cv_text), cv_text, "", "", vaga, kits, refazer=True,
+                          faltando=e["lacunas"], perguntar=lambda _p: None)
+        e = estado.obter(e["id"])
+        assert pasta and e["status"] == "pronta" and e["lacunas"] == [{"requisito": "SQL avançado", "motivo": "básico"}]
+        assert [h["status"] for h in e["historico"]] == ["decidir", "pronta"]
+
+        # depois de enviada, refazer o kit não volta o status para "pronta"
+        estado.atualizar(vaga, "enviada")
+        gerar_kit(_ComLacuna(cv_text), cv_text, "", "", vaga, kits, refazer=True, faltando=[])
+        e = estado.obter(e["id"])
+        assert e["status"] == "enviada" and e["enviada_em"]
+    print("OK  test_kit_sem_resposta_fica_para_decidir")
+
+
+def test_painel():
+    import painel as painelmod
+
+    raiz = Path(__file__).parent
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        _montar_saida(out, [
+            {"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
+             "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": "Forecast e CRM."},
+            {"recomendacao": "nao_aplicar", "nota_fit": "2.0", "titulo": "Engenheiro Java",
+             "empresa": "Beta", "fonte": "gupy", "link": "https://x/2", "descricao": "Java."},
+        ])
+        cfg = out / "config.yaml"
+        cfg.write_text(yaml.safe_dump({"output_dir": str(out), "cv_path": str(raiz / "cv.exemplo.txt"),
+                                       "kit": {"pasta_pdf": ""}}), encoding="utf-8")
+        # sem Word no teste: o kit sai só em .docx
+        with patch.object(painelmod.kitmod, "ConversorWord", side_effect=OSError("sem Word")):
+            p = painelmod.Painel(str(cfg), mock=True)
+            cliente = painelmod.criar_app(p).test_client()
+
+            r = cliente.get("/api/painel").get_json()
+            assert [v["titulo"] for v in r["vagas"]] == ["Analista de RevOps"]  # "nao_aplicar" fica de fora
+            assert r["candidaturas"] == [] and r["fila"] == 0
+
+            assert cliente.post("/api/gerar", json={"link": "https://x/1"}).status_code == 200
+            for _ in range(100):  # o kit é gerado numa thread
+                if not p.gerando:
+                    break
+                time.sleep(0.05)
+            c = cliente.get("/api/painel").get_json()["candidaturas"]
+        assert len(c) == 1 and c[0]["status"] == "pronta" and "descricao" not in c[0], c
+        id_ = c[0]["id"]
+        kit = cliente.get(f"/api/kit/{id_}").get_json()
+        assert kit["kit"]["carta"].startswith("Carta simulada")
+        assert cliente.get(f"/pdf/{id_}").status_code == 404  # sem Word, sem PDF
+
+        assert cliente.post("/api/status", json={"id": id_, "status": "enviada"}).status_code == 200
+        assert cliente.post("/api/notas", json={"id": id_, "notas": "falar com a Ana"}).status_code == 200
+        e = Candidaturas(out / "kits_mock" / "candidaturas.json").obter(id_)
+        assert e["status"] == "enviada" and e["notas"] == "falar com a Ana" and e["enviada_em"]
+        assert cliente.post("/api/gerar", json={"link": "https://nao/existe"}).status_code == 404
+        assert cliente.get("/api/kit/naoexiste").status_code == 404
+    print("OK  test_painel")
+
+
+def test_importar_existentes():
+    with tempfile.TemporaryDirectory() as tmp:
+        kits = Path(tmp)
+        (kits / "Acme_x").mkdir()
+        (kits / "Acme_x" / "kit.json").write_text(json.dumps({
+            "vaga": {"titulo": "Analista", "empresa": "Acme", "link": "https://x/1", "fonte": "gupy", "nota_fit": "9"},
+            "paginas": 2, "pdf": "", "kit": {"carta": "[sua pretensão]", "respostas": []},
+        }), encoding="utf-8")
+        with (kits / "registro.csv").open("w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=REGISTRO_CAMPOS)
+            w.writeheader()
+            w.writerow({"data": "2026-10-27", "empresa": "Beta", "vaga": "BA", "fonte": "bebee",
+                        "link": "https://x/2", "nota_jev": "9.3", "lacunas": "SQL; Python", "decisao": "pulada"})
+        assert importar_existentes(kits) == 2
+        assert importar_existentes(kits) == 0  # não duplica
+        por_link = {e["link"]: e for e in Candidaturas(kits / "candidaturas.json").todas()}
+        assert por_link["https://x/1"]["status"] == "pronta"
+        assert por_link["https://x/1"]["alertas"]["preencher"] == ["[sua pretensão]"]
+        assert por_link["https://x/2"]["status"] == "pulada"
+        assert [l["requisito"] for l in por_link["https://x/2"]["lacunas"]] == ["SQL", "Python"]
+    print("OK  test_importar_existentes")
+
+
+def test_nuvem_e_sincronizar():
+    import importlib.util
+    import io
+
+    import sincronizar as sinc
+
+    raiz = Path(__file__).parent
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        env = {"SQLITE_PATH": str(out / "nuvem.db"), "PAINEL_SENHA": "s3nha", "PAINEL_TOKEN": "tok",
+               "SEGREDO": "x" * 32}
+        with patch.dict(os.environ, env):
+            os.environ.pop("DATABASE_URL", None)
+            os.environ.pop("POSTGRES_URL", None)
+            spec = importlib.util.spec_from_file_location("painel_nuvem", raiz / "web" / "api" / "index.py")
+            web = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(web)
+            navegador = web.criar_app().test_client()
+            pc_cliente = web.criar_app().test_client()
+
+            class _NuvemTeste(sinc.Nuvem):
+                def __init__(self):
+                    pass
+
+                def _req(self, metodo, caminho, json=None, data=None, files=None):
+                    kw = {"headers": {"Authorization": "Bearer tok"}}
+                    if json is not None:
+                        kw["json"] = json
+                    if data is not None:
+                        corpo = dict(data)
+                        for k, (nome, conteudo, _tipo) in (files or {}).items():
+                            corpo[k] = (io.BytesIO(conteudo), nome)
+                        kw.update(data=corpo, content_type="multipart/form-data")
+                    r = pc_cliente.open(caminho, method=metodo, **kw)
+                    assert r.status_code == 200, (caminho, r.get_json())
+                    return r.get_json()
+
+            class _WordFalso:
+                def __enter__(self):
+                    return _ConversorFalso()
+
+                def __exit__(self, *exc):
+                    pass
+
+            _montar_saida(out, [
+                {"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
+                 "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": "Forecast e CRM."},
+                {"recomendacao": "avaliar", "nota_fit": "6.0", "titulo": "Analista de Growth",
+                 "empresa": "Beta", "fonte": "gupy", "link": "https://x/2", "descricao": "Growth."},
+            ])
+            config = {"output_dir": str(out), "cv_path": str(raiz / "cv.exemplo.txt"), "kit": {"pasta_pdf": ""}}
+            nuvem = _NuvemTeste()
+
+            # sem senha, nada; com o token errado, o PC também não entra
+            assert navegador.get("/api/painel").status_code == 401
+            assert navegador.post("/api/login", json={"senha": "errada"}).status_code == 401
+            assert pc_cliente.get("/api/pc/estado", headers={"Authorization": "Bearer x"}).status_code == 401
+            assert navegador.post("/api/login", json={"senha": "s3nha"}).status_code == 200
+
+            with patch.object(sinc.kitmod, "ConversorWord", _WordFalso):
+                # 1ª rodada: sobe as vagas do dia
+                r = sinc.sincronizar(config, nuvem, mock=True)
+                assert r["vagas"] == 2 and r["pedidos"] == 0, r
+                p = navegador.get("/api/painel").get_json()
+                assert p["modo"] == "nuvem" and p["pc_visto_em"] and len(p["vagas"]) == 2
+
+                # pedido pelo celular -> o PC gera na rodada seguinte e sobe kit + PDF
+                assert navegador.post("/api/gerar", json={"link": "https://x/1"}).status_code == 200
+                assert navegador.post("/api/gerar", json={"link": "https://nao/existe"}).status_code == 404
+                p = navegador.get("/api/painel").get_json()
+                assert p["fila"] == 1 and [v["gerando"] for v in p["vagas"]] == [True, False]
+                r = sinc.sincronizar(config, nuvem, mock=True)
+            assert (r["pedidos"], r["erros"], r["subidas"], r["kits"]) == (1, 0, 1, 1), r
+            p = navegador.get("/api/painel").get_json()
+            assert p["fila"] == 0 and p["candidaturas"][0]["status"] == "pronta"
+            id_ = p["candidaturas"][0]["id"]
+            assert navegador.get(f"/api/kit/{id_}").get_json()["kit"]["carta"].startswith("Carta simulada")
+            assert navegador.get(f"/pdf/{id_}").data == b"%PDF-falso"
+
+            # mudou status e anotação pelo celular -> chega no PC
+            navegador.post("/api/status", json={"id": id_, "status": "enviada"})
+            navegador.post("/api/notas", json={"id": id_, "notas": "falar com a Ana"})
+            r = sinc.sincronizar(config, nuvem, mock=True)
+            assert (r["baixadas"], r["subidas"], r["kits"], r["vagas"]) == (1, 0, 0, 0), r
+            e = Candidaturas(out / "kits_mock" / "candidaturas.json").obter(id_)
+            assert e["status"] == "enviada" and e["notas"] == "falar com a Ana" and e["enviada_em"]
+
+            # nada mudou: rodada vazia; e o PC não sobrescreve uma versão mais nova da nuvem
+            r = sinc.sincronizar(config, nuvem, mock=True)
+            assert not any(r.values()), r
+            velha = {**e, "status": "pronta", "atualizado_em": "2000-01-01T00:00:00+00:00"}
+            assert nuvem._req("PUT", "/api/pc/candidaturas", json=[velha])["gravadas"] == 0
+            assert navegador.get("/api/painel").get_json()["candidaturas"][0]["status"] == "enviada"
+    print("OK  test_nuvem_e_sincronizar")
+
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -1020,5 +1435,13 @@ if __name__ == "__main__":
     test_ajuste_junior()
     test_cache_versao()
     test_cache_reuse()
+    test_bebee_descricao_completa_repontua()
     test_scoring_and_ranking_end_to_end()
+    test_kit_checagens()
+    test_kit_encaixe_2_paginas()
+    test_kit_mock_end_to_end()
+    test_kit_sem_resposta_fica_para_decidir()
+    test_importar_existentes()
+    test_painel()
+    test_nuvem_e_sincronizar()
     print("\nTodos os testes offline passaram.")

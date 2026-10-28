@@ -8,21 +8,18 @@
   :root {
     --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dfe3e8;
     --text: #1d232b; --muted: #5f6b7a; --accent: #1f4e79; --accent-text: #ffffff;
-    --decidir: #b26a00; --decidir-bg: #fff3dc; --pulada: #6b7280; --pulada-bg: #eef0f2;
-    --pronta: #1f5fa8; --pronta-bg: #e3eefb; --enviada: #5b3fb0; --enviada-bg: #ece6fb;
-    --entrevista: #0f766e; --entrevista-bg: #dcf3f0; --oferta: #1d7a35; --oferta-bg: #dff3e4;
-    --recusada: #b42318; --recusada-bg: #fde7e5; --encerrada: #6b7280; --encerrada-bg: #eef0f2;
-    --alerta: #b42318; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    --enviada: #5b3fb0; --enviada-bg: #ece6fb; --entrevista: #0f766e; --entrevista-bg: #dcf3f0;
+    --oferta: #1d7a35; --oferta-bg: #dff3e4; --recusada: #b42318; --recusada-bg: #fde7e5;
+    --encerrada: #6b7280; --encerrada-bg: #eef0f2; --alerta: #b42318; --atraso: #b26a00;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #12151a; --surface: #1a1f26; --surface-2: #222831; --border: #2e3640;
       --text: #e6e9ed; --muted: #9aa5b1; --accent: #5b9bd5; --accent-text: #0d1117;
-      --decidir: #f0b44c; --decidir-bg: #3a2c12; --pulada: #9aa5b1; --pulada-bg: #262c34;
-      --pronta: #7fb2ec; --pronta-bg: #1b2d44; --enviada: #b3a1f0; --enviada-bg: #2b2346;
-      --entrevista: #5fd0c2; --entrevista-bg: #143532; --oferta: #6fd68a; --oferta-bg: #173520;
-      --recusada: #f2877d; --recusada-bg: #3d1d1a; --encerrada: #9aa5b1; --encerrada-bg: #262c34;
-      --alerta: #f2877d; --shadow: none;
+      --enviada: #b3a1f0; --enviada-bg: #2b2346; --entrevista: #5fd0c2; --entrevista-bg: #143532;
+      --oferta: #6fd68a; --oferta-bg: #173520; --recusada: #f2877d; --recusada-bg: #3d1d1a;
+      --encerrada: #9aa5b1; --encerrada-bg: #262c34; --alerta: #f2877d; --atraso: #f0b44c; --shadow: none;
     }
   }
   * { box-sizing: border-box; }
@@ -33,25 +30,18 @@
            background: var(--surface); color: var(--text); padding: 6px 12px; }
   button:hover { border-color: var(--accent); }
   button.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  button.perigo { color: var(--alerta); }
+  button.discreto { border-color: transparent; background: none; color: var(--muted); padding: 4px 8px; }
+  button.discreto:hover { color: var(--alerta); border-color: var(--border); }
   button:disabled { opacity: .55; cursor: default; }
-  input, select, textarea { font: inherit; color: var(--text); background: var(--surface);
-           border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+  input, select { font: inherit; color: var(--text); background: var(--surface);
+                  border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
 
   header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
            padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
   header h1 { font-size: 18px; margin: 0; }
-  header .meta { color: var(--muted); font-size: 13px; }
-  .login { max-width: 340px; margin: 80px auto; display: flex; flex-direction: column; gap: 12px;
-           background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
-  .login h2 { margin: 0; font-size: 16px; }
-  #pc { margin-left: auto; }
-  #pc.atrasado { color: var(--decidir); }
-  .fila { font-size: 13px; color: var(--pronta); display: none; align-items: center; gap: 8px; }
-  .fila.ativa { display: inline-flex; }
-  .giro { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent;
-          border-radius: 50%; animation: giro .8s linear infinite; display: inline-block; }
-  @keyframes giro { to { transform: rotate(360deg); } }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta.atrasado { color: var(--atraso); }
+  #sair { margin-left: auto; }
 
   nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface);
         border-bottom: 1px solid var(--border); overflow-x: auto; }
@@ -60,22 +50,26 @@
   nav button.ativa { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   nav .conta { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px;
                background: var(--surface-2); font-size: 12px; text-align: center; }
-  nav .conta.destaque { background: var(--decidir-bg); color: var(--decidir); font-weight: 600; }
 
   main { padding: 20px 24px 60px; max-width: 1280px; margin: 0 auto; }
   .vazio { color: var(--muted); padding: 40px 0; text-align: center; }
   .barra { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
   .barra input[type=search] { min-width: 260px; flex: 1; max-width: 420px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .erro { color: var(--alerta); font-size: 13px; }
 
-  .cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+  .login { max-width: 340px; margin: 80px auto; display: flex; flex-direction: column; gap: 12px;
+           background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
+  .login h2 { margin: 0; font-size: 16px; }
+
   .cartao { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
             padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; }
   .cartao h3 { margin: 0; font-size: 15px; }
-  .sub { color: var(--muted); font-size: 13px; }
-  .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
-  .lacunas { margin: 0; padding-left: 18px; }
-  .lacunas li { margin-bottom: 6px; }
-  .lacunas .motivo { display: block; color: var(--muted); font-size: 13px; }
+  .acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .form-cand { margin-bottom: 16px; max-width: 880px; }
+  .grade-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .grade-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .grade-form .largo { grid-column: 1 / -1; }
 
   .tabela { width: 100%; border-collapse: collapse; background: var(--surface);
             border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -90,20 +84,13 @@
 
   .nota { display: inline-block; min-width: 38px; text-align: center; font-weight: 600;
           font-variant-numeric: tabular-nums; border-radius: 6px; padding: 2px 6px; background: var(--surface-2); }
-  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; border-radius: 10px;
+  .chip { display: inline-flex; align-items: center; font-size: 12px; border-radius: 10px;
           padding: 2px 8px; white-space: nowrap; }
-  .chip.alerta { background: var(--recusada-bg); color: var(--recusada); }
-  .chip.ok { background: var(--oferta-bg); color: var(--oferta); }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .s-decidir { background: var(--decidir-bg); color: var(--decidir); }
-  .s-pulada { background: var(--pulada-bg); color: var(--pulada); }
-  .s-pronta { background: var(--pronta-bg); color: var(--pronta); }
   .s-enviada { background: var(--enviada-bg); color: var(--enviada); }
   .s-entrevista { background: var(--entrevista-bg); color: var(--entrevista); }
   .s-oferta { background: var(--oferta-bg); color: var(--oferta); }
   .s-recusada { background: var(--recusada-bg); color: var(--recusada); }
   .s-encerrada { background: var(--encerrada-bg); color: var(--encerrada); }
-  .erro { color: var(--alerta); font-size: 13px; }
 
   .funil { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .funil button { display: flex; flex-direction: column; align-items: flex-start; min-width: 110px;
@@ -112,48 +99,13 @@
   .funil .qtd { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .funil .rot { font-size: 12px; color: var(--muted); }
 
-  .form-cand { margin-bottom: 16px; max-width: 880px; }
-  .grade-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-  .grade-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  .grade-form input { color: var(--text); }
-  .grade-form .largo { grid-column: 1 / -1; }
-  @media (max-width: 640px) { .grade-form { grid-template-columns: 1fr; } }
-  details.puladas { margin-top: 28px; }
-  details.puladas summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
-
-  /* gaveta do kit */
-  .gaveta-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; z-index: 10; }
-  .gaveta-fundo.aberta { display: block; }
-  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(1280px, 100%); background: var(--bg);
-            z-index: 11; display: none; flex-direction: column; box-shadow: -4px 0 24px rgba(0,0,0,.2); }
-  .gaveta.aberta { display: flex; }
-  .gaveta-topo { display: flex; gap: 12px; align-items: flex-start; padding: 14px 20px;
-                 background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .gaveta-topo h2 { margin: 0; font-size: 17px; }
-  .gaveta-topo .fechar { margin-left: auto; }
-  .gaveta-corpo { flex: 1; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); min-height: 0; }
-  .gaveta-corpo iframe { width: 100%; height: 100%; border: 0; background: #525659; }
-  .lado { overflow-y: auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 18px; }
-  .bloco h4 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .texto { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
-           white-space: pre-wrap; }
-  .resposta { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
-  .resposta .perg { font-weight: 600; margin-bottom: 4px; display: flex; gap: 8px; align-items: flex-start; }
-  .resposta .perg span { flex: 1; }
-  .copiar { padding: 2px 10px; font-size: 12px; }
-  .checklist { margin: 0; padding-left: 18px; }
-  .checklist li { margin-bottom: 4px; }
-  mark { background: var(--decidir-bg); color: var(--decidir); border-radius: 3px; padding: 0 2px; }
-
   .aviso { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text);
            color: var(--bg); padding: 10px 16px; border-radius: 8px; z-index: 20; display: none; }
   .aviso.visivel { display: block; }
 
-  @media (max-width: 900px) {
+  @media (max-width: 700px) {
     header, nav, main { padding-left: 16px; padding-right: 16px; }
-    .gaveta-corpo { grid-template-columns: 1fr; grid-template-rows: 60vh auto; overflow-y: auto; }
-    .lado { overflow: visible; }
-    .cartoes { grid-template-columns: 1fr; }
+    .grade-form { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -161,37 +113,26 @@
 <header>
   <h1>Painel de Candidaturas</h1>
   <span class="meta" id="meta"></span>
-  <span class="fila" id="fila"><span class="giro"></span><span id="fila-texto"></span></span>
-  <span class="meta" id="pc"></span>
   <button id="sair" hidden>Sair</button>
 </header>
 <nav id="abas"></nav>
 <main id="conteudo"></main>
-
-<div class="gaveta-fundo" id="gaveta-fundo"></div>
-<aside class="gaveta" id="gaveta" aria-modal="true" role="dialog"></aside>
 <div class="aviso" id="aviso"></div>
 
 <script>
-const STATUS = {
-  decidir: "Para decidir", pulada: "Pulada", pronta: "Pronta para enviar", enviada: "Enviada",
-  entrevista: "Entrevista", oferta: "Oferta", recusada: "Recusada", encerrada: "Encerrada",
-};
-const POS_ENVIO = ["enviada", "entrevista", "oferta", "recusada", "encerrada"];
-const ABAS = [
-  { id: "decidir", rotulo: "Para decidir" },
-  { id: "prontas", rotulo: "Prontas para enviar" },
-  { id: "candidaturas", rotulo: "Candidaturas" },
-  { id: "vagas", rotulo: "Vagas de hoje" },
-];
+const STATUS = { enviada: "Enviada", entrevista: "Entrevista", oferta: "Oferta", recusada: "Recusada", encerrada: "Encerrada" };
+const ABAS = [{ id: "candidaturas", rotulo: "Candidaturas" }, { id: "vagas", rotulo: "Vagas de hoje" }];
 
-let dados = { vagas: [], candidaturas: [], fila: 0, relatorio: "" };
-// #vagas, #candidaturas... escolhe a aba; #kit=<id> já abre um kit
+let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "" };
+// #vagas ou #candidaturas no endereço escolhe a aba
 const hash = location.hash.slice(1);
-let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "decidir");
+let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
+if (!ABAS.some(a => a.id === aba)) aba = "candidaturas";
 let filtroFunil = "ativas";
-let filtroVagas = { busca: "", rec: "aplicar_agora", semKit: true, limite: 150 };
-let gavetaId = null;
+let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, limite: 150 };
+// rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
+// a atualização automática da página não apagar o que foi digitado
+let formCand = null;
 
 function lerLocal(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function gravarLocal(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -199,11 +140,9 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function nota(n) { const v = parseFloat(n); return isNaN(v) ? "–" : v.toFixed(1); }
-// na nuvem o kit só começa quando o PC sincroniza
-function trabalhando(acao) { return dados.modo === "nuvem" ? "Esperando o PC…" : `${acao}…`; }
 function chipStatus(s) { return s ? `<span class="chip s-${esc(s)}">${esc(STATUS[s] || s)}</span>` : ""; }
-// "2026-10-28" é uma data (sem fuso); "2026-10-28T03:15:00+00:00" é um instante,
-// mostrado no fuso deste navegador
+function hojeISO() { return new Date().toLocaleDateString("sv-SE"); }  // AAAA-MM-DD no fuso local
+// "2026-10-28" é uma data (sem fuso); "2026-10-28T03:15:00+00:00" é um instante
 function dataBR(iso) {
   if (!iso) return "–";
   if (iso.length === 10) { const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; }
@@ -237,34 +176,17 @@ async function api(caminho, corpo) {
   return j;
 }
 
-// --- login (só no painel na nuvem; o local não pede senha) ---------------------
+// --- login ---------------------------------------------------------------------
 function mostrarLogin() {
   clearTimeout(agendar.t);
   document.getElementById("abas").innerHTML = "";
+  document.getElementById("sair").hidden = true;
   document.getElementById("conteudo").innerHTML = `<form class="login" id="login">
     <h2>Painel de Candidaturas</h2>
     <input type="password" id="senha" placeholder="Senha" autocomplete="current-password" required>
     <button class="primario">Entrar</button><span class="erro" id="login-erro"></span></form>`;
   document.getElementById("senha").focus();
 }
-document.addEventListener("submit", async e => {
-  if (e.target.id === "form-cand") {
-    e.preventDefault();
-    try {
-      await api("/api/candidatura", formCand);
-      formCand = null; filtroFunil = "ativas";
-      aviso("Candidatura adicionada.");
-      await carregar();
-    } catch (err) { aviso(err.message); }
-    return;
-  }
-  if (e.target.id !== "login") return;
-  e.preventDefault();
-  try {
-    await api("/api/login", { senha: document.getElementById("senha").value });
-    await carregar(); agendar();
-  } catch (err) { document.getElementById("login-erro").textContent = err.message; }
-});
 document.getElementById("sair").addEventListener("click", async () => {
   await api("/api/sair", {}).catch(() => {});
   mostrarLogin();
@@ -274,43 +196,34 @@ document.getElementById("sair").addEventListener("click", async () => {
 async function carregar() {
   try { dados = await api("/api/painel"); }
   catch (e) { if (!document.getElementById("login")) aviso("Não consegui falar com o painel: " + e.message); return; }
-  const nuvem = dados.modo === "nuvem";
-  const meta = [dados.relatorio ? `Relatório: ${dados.relatorio.replace("vagas_triadas_", "").replace(".csv", "")}` : "Sem relatório"];
-  if (dados.mock) meta.push("modo simulado");
-  document.getElementById("meta").textContent = meta.join(" · ");
-  const fila = document.getElementById("fila");
-  fila.classList.toggle("ativa", dados.fila > 0);
-  // na nuvem, quem gera é o PC: os pedidos esperam ele sincronizar
-  document.getElementById("fila-texto").textContent = nuvem
-    ? `${dados.fila} pedido${dados.fila > 1 ? "s" : ""} esperando o PC`
-    : `Gerando ${dados.fila} kit${dados.fila > 1 ? "s" : ""}…`;
-  const pc = document.getElementById("pc");
-  pc.textContent = nuvem ? (dados.pc_visto_em ? `PC sincronizado ${haQuantoTempo(dados.pc_visto_em)}` : "PC ainda não sincronizou") : "";
-  pc.classList.toggle("atrasado", nuvem && (!dados.pc_visto_em || Date.now() - new Date(dados.pc_visto_em) > 10 * 60000));
-  document.getElementById("sair").hidden = !nuvem;
+  document.getElementById("sair").hidden = false;
+  const meta = document.getElementById("meta");
+  const data = dados.relatorio ? dados.relatorio.replace("vagas_triadas_", "").replace(".csv", "") : "";
+  meta.textContent = data ? `Vagas de ${dataBR(data)}` + (dados.pc_visto_em ? ` · PC sincronizou ${haQuantoTempo(dados.pc_visto_em)}` : "")
+    : "O PC ainda não mandou as vagas";
+  // a rodada é diária: mais de um dia e meio sem notícia do PC merece um aviso
+  meta.classList.toggle("atrasado", !dados.pc_visto_em || Date.now() - new Date(dados.pc_visto_em) > 36 * 3600000);
   desenharAbas();
   // não redesenha embaixo de quem está digitando
   const foco = document.activeElement;
-  if (!(foco && foco.closest("#conteudo") && ["INPUT", "TEXTAREA", "SELECT"].includes(foco.tagName))) desenhar();
-  if (gavetaId) atualizarTopoGaveta();
+  if (!(foco && foco.closest("#conteudo") && ["INPUT", "SELECT"].includes(foco.tagName))) desenhar();
 }
 function agendar() {
   clearTimeout(agendar.t);
-  agendar.t = setTimeout(async () => { await carregar(); agendar(); }, dados.fila > 0 ? 3000 : 20000);
+  agendar.t = setTimeout(async () => { await carregar(); agendar(); }, 60000);
 }
 
+const POS = Object.keys(STATUS);
 function cand(status) { return dados.candidaturas.filter(c => status.includes(c.status)); }
 
 function desenharAbas() {
   const contas = {
-    decidir: cand(["decidir"]).length,
-    prontas: cand(["pronta"]).length,
-    candidaturas: cand(POS_ENVIO).length,
+    candidaturas: cand(["enviada", "entrevista", "oferta"]).length,
     vagas: dados.vagas.filter(v => v.recomendacao === "aplicar_agora" && !v.status).length,
   };
   document.getElementById("abas").innerHTML = ABAS.map(a => `
     <button class="${a.id === aba ? "ativa" : ""}" data-aba="${a.id}">${a.rotulo}
-      <span class="conta ${a.id === "decidir" && contas.decidir ? "destaque" : ""}">${contas[a.id]}</span></button>`).join("");
+      <span class="conta">${contas[a.id]}</span></button>`).join("");
 }
 document.getElementById("abas").addEventListener("click", e => {
   const b = e.target.closest("button[data-aba]"); if (!b) return;
@@ -318,78 +231,13 @@ document.getElementById("abas").addEventListener("click", e => {
 });
 
 function desenhar() {
-  const el = document.getElementById("conteudo");
-  if (aba === "decidir") el.innerHTML = abaDecidir();
-  else if (aba === "prontas") el.innerHTML = abaProntas();
-  else if (aba === "candidaturas") el.innerHTML = abaCandidaturas();
-  else el.innerHTML = abaVagas();
-}
-
-// --- Para decidir ------------------------------------------------------------
-function cartaoDecidir(c, pulada) {
-  const lac = (c.lacunas || []).map(l => `<li><strong>${esc(l.requisito)}</strong>${l.motivo ? `<span class="motivo">${esc(l.motivo)}</span>` : ""}</li>`).join("");
-  const acoes = c.gerando
-    ? `<span class="sub"><span class="giro"></span> ${trabalhando("Montando o kit")}</span>`
-    : pulada
-      ? `<button data-acao="montar" data-id="${c.id}">Reconsiderar e montar</button>
-         <button data-acao="enviada" data-id="${c.id}" title="Já me candidatei, sem kit">Já enviei</button>`
-      : `<button class="primario" data-acao="montar" data-id="${c.id}">Montar mesmo assim</button>
-         <button data-acao="pular" data-id="${c.id}">Pular essa vaga</button>
-         <button data-acao="enviada" data-id="${c.id}" title="Já me candidatei, sem kit">Já enviei</button>`;
-  return `<div class="cartao">
-    <div class="chips"><span class="nota">${nota(c.nota_fit)}</span>${c.fonte ? `<span class="chip s-pulada">${esc(c.fonte)}</span>` : ""}</div>
-    <h3>${esc(c.titulo)}</h3>
-    <div class="sub">${esc(c.empresa)}</div>
-    ${lac ? `<div><div class="sub">Requisitos obrigatórios que você não atende:</div><ul class="lacunas">${lac}</ul></div>` : ""}
-    ${c.erro ? `<div class="erro">Erro: ${esc(c.erro)}</div>` : ""}
-    <div class="acoes">${acoes}<a href="${esc(c.link)}" target="_blank" rel="noopener"><button>Ver vaga ↗</button></a></div>
-  </div>`;
-}
-function abaDecidir() {
-  const pend = cand(["decidir"]).sort((a, b) => b.nota_fit - a.nota_fit);
-  const pul = cand(["pulada"]).sort((a, b) => (b.atualizado_em || "").localeCompare(a.atualizado_em || ""));
-  let h = pend.length ? `<div class="cartoes">${pend.map(c => cartaoDecidir(c, false)).join("")}</div>`
-    : `<div class="vazio">Nada para decidir. Vagas em que falta requisito obrigatório aparecem aqui.</div>`;
-  if (pul.length) h += `<details class="puladas"><summary>Puladas (${pul.length})</summary>
-    <div class="cartoes">${pul.map(c => cartaoDecidir(c, true)).join("")}</div></details>`;
-  return h;
-}
-
-// --- Prontas para enviar -------------------------------------------------------
-function chipsAlerta(c) {
-  const a = c.alertas || {};
-  const chips = [];
-  if (a.preencher?.length) chips.push(`<span class="chip alerta">Preencher ${a.preencher.length}</span>`);
-  if (a.numeros?.length) chips.push(`<span class="chip alerta">${a.numeros.length} número(s) a conferir</span>`);
-  if (a.termos?.length) chips.push(`<span class="chip alerta">Termo proibido: ${esc(a.termos.join(", "))}</span>`);
-  if (a.paginas) chips.push(`<span class="chip alerta">${a.paginas} página(s)</span>`);
-  if (a.pdf_na_pasta === false) chips.push(`<span class="chip alerta">PDF não está na pasta de CVs</span>`);
-  if (!chips.length) chips.push(`<span class="chip ok">Sem pendências</span>`);
-  return chips.join("");
-}
-function abaProntas() {
-  const lista = cand(["pronta"]).sort((a, b) => (b.gerado_em || "").localeCompare(a.gerado_em || ""));
-  if (!lista.length) return `<div class="vazio">Nenhum kit esperando envio. Gere kits na aba “Vagas de hoje”.</div>`;
-  return `<div class="rolagem"><table class="tabela"><thead><tr>
-    <th class="num">Nota</th><th>Vaga</th><th>Antes de enviar</th><th>Gerado</th><th></th></tr></thead><tbody>
-    ${lista.map(c => `<tr>
-      <td class="num"><span class="nota">${nota(c.nota_fit)}</span></td>
-      <td class="vaga"><strong>${esc(c.titulo)}</strong><div class="sub">${esc(c.empresa)}${(c.lacunas || []).length ? " · com lacuna aceita" : ""}</div>
-        ${c.erro ? `<div class="erro">Erro: ${esc(c.erro)}</div>` : ""}</td>
-      <td><div class="chips">${c.gerando ? `<span class="chip s-pronta"><span class="giro"></span> ${trabalhando("Refazendo")}</span>` : chipsAlerta(c)}</div></td>
-      <td class="sub">${dataBR(c.gerado_em)}</td>
-      <td class="num"><button class="primario" data-acao="abrir" data-id="${c.id}">Abrir kit</button></td>
-    </tr>`).join("")}</tbody></table></div>`;
+  document.getElementById("conteudo").innerHTML = aba === "vagas" ? abaVagas() : abaCandidaturas();
 }
 
 // --- Candidaturas ------------------------------------------------------------
-// rascunho do formulário "Adicionar candidatura" (null = fechado); fica fora do
-// HTML para a atualização automática da página não apagar o que foi digitado
-let formCand = null;
-function hojeISO() { return new Date().toLocaleDateString("sv-SE"); }  // AAAA-MM-DD no fuso local
 function formularioCandidatura() {
   if (!formCand) return `<div class="barra"><button class="primario" data-acao="nova-cand">+ Adicionar candidatura</button>
-    <span class="sub">Para uma vaga enviada sem kit — de outro site, com CV feito no Claude Desktop…</span></div>`;
+    <span class="sub">Para uma vaga de fora do relatório (LinkedIn, site da empresa…)</span></div>`;
   const campo = (nome, rotulo, tipo = "text", extra = "") => `<label>${rotulo}
     <input name="${nome}" type="${tipo}" value="${esc(formCand[nome] || "")}" ${extra}></label>`;
   return `<form class="cartao form-cand" id="form-cand">
@@ -405,30 +253,30 @@ function formularioCandidatura() {
       <button type="button" data-acao="cancelar-cand">Cancelar</button></div></form>`;
 }
 function abaCandidaturas() {
-  const todas = cand(POS_ENVIO);
-  const contas = Object.fromEntries(POS_ENVIO.map(s => [s, todas.filter(c => c.status === s).length]));
+  const todas = cand(POS);
+  const contas = Object.fromEntries(POS.map(s => [s, todas.filter(c => c.status === s).length]));
   const ativas = todas.filter(c => ["enviada", "entrevista", "oferta"].includes(c.status));
-  const botoes = [["ativas", "Em andamento", ativas.length], ...POS_ENVIO.map(s => [s, STATUS[s], contas[s]])];
+  const botoes = [["ativas", "Em andamento", ativas.length], ...POS.map(s => [s, STATUS[s], contas[s]])];
   const lista = (filtroFunil === "ativas" ? ativas : todas.filter(c => c.status === filtroFunil))
     .sort((a, b) => (b.enviada_em || "").localeCompare(a.enviada_em || ""));
-  const funil = formularioCandidatura() + `<div class="funil">${botoes.map(([id, rot, n]) => `
+  const topo = formularioCandidatura() + `<div class="funil">${botoes.map(([id, rot, n]) => `
     <button class="${filtroFunil === id ? "ativa" : ""}" data-acao="funil" data-filtro="${id}">
       <span class="qtd">${n}</span><span class="rot">${esc(rot)}</span></button>`).join("")}</div>`;
-  if (!todas.length) return funil + `<div class="vazio">Nenhuma candidatura enviada ainda. Use “Já enviei” numa vaga de hoje,
-    “+ Adicionar candidatura” para uma vaga de fora do relatório, ou marque um kit como enviado.</div>`;
-  if (!lista.length) return funil + `<div class="vazio">Nenhuma candidatura neste filtro.</div>`;
-  return funil + `<div class="rolagem"><table class="tabela"><thead><tr>
+  if (!todas.length) return topo + `<div class="vazio">Nenhuma candidatura ainda. Use “Já enviei” numa vaga de hoje
+    ou “+ Adicionar candidatura” para uma vaga de fora do relatório.</div>`;
+  if (!lista.length) return topo + `<div class="vazio">Nenhuma candidatura neste filtro.</div>`;
+  return topo + `<div class="rolagem"><table class="tabela"><thead><tr>
     <th>Vaga</th><th>Status</th><th>Enviada em</th><th class="num">Há</th><th>Anotações</th><th></th></tr></thead><tbody>
     ${lista.map(c => `<tr>
       <td class="vaga">${/^https?:/.test(c.link) ? `<a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>`
           : `<strong>${esc(c.titulo)}</strong>`}
         <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}</div></td>
-      <td><select data-acao="status" data-id="${c.id}">${POS_ENVIO.map(s =>
+      <td><select data-acao="status" data-id="${c.id}">${POS.map(s =>
         `<option value="${s}" ${s === c.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></td>
       <td>${dataBR(c.enviada_em)}</td>
       <td class="num sub">${diasDesde(c.enviada_em)}</td>
       <td><input class="notas" data-acao="notas" data-id="${c.id}" value="${esc(c.notas)}" placeholder="ex.: recrutadora Ana, retorno sexta"></td>
-      <td class="num">${c.pasta ? `<button data-acao="abrir" data-id="${c.id}">Kit</button>` : ""}</td>
+      <td class="num"><button class="discreto" data-acao="excluir" data-id="${c.id}" title="Excluir este registro">Excluir</button></td>
     </tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -438,7 +286,7 @@ function abaVagas() {
   const busca = f.busca.toLowerCase();
   const lista = dados.vagas.filter(v =>
     (f.rec === "todas" || v.recomendacao === f.rec) &&
-    (!f.semKit || !v.status || v.gerando) &&
+    (!f.esconder || !v.status) &&
     (!busca || `${v.titulo} ${v.empresa}`.toLowerCase().includes(busca)));
   const barra = `<div class="barra">
     <input type="search" id="busca" placeholder="Buscar por vaga ou empresa" value="${esc(f.busca)}">
@@ -447,24 +295,18 @@ function abaVagas() {
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
-    <label class="sub"><input type="checkbox" id="semkit" ${f.semKit ? "checked" : ""}> Esconder as já tratadas</label>
+    <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder as que já enviei</label>
     <span class="sub">${lista.length} vaga(s)</span></div>`;
+  if (!dados.vagas.length) return barra + `<div class="vazio">As vagas do dia chegam quando o PC roda a coleta diária.</div>`;
   if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
-  const linhas = lista.slice(0, f.limite).map(v => {
-    let acao;
-    if (v.gerando) acao = `<span class="chip s-pronta"><span class="giro"></span> ${trabalhando("Gerando")}</span>`;
-    else if (v.status) acao = chipStatus(v.status) + (["pronta", ...POS_ENVIO].includes(v.status)
-      ? ` <button data-acao="abrir" data-id="${v.id}">Abrir</button>` : "");
-    else acao = `<button data-acao="ja-enviei" data-link="${esc(v.link)}" title="Já me candidatei, sem kit">Já enviei</button>
-      <button class="primario" data-acao="gerar" data-link="${esc(v.link)}">Gerar kit</button>`;
-    return `<tr>
+  const linhas = lista.slice(0, f.limite).map(v => `<tr>
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
       <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>
         <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}</div></td>
       <td class="sub">${esc(v.fonte)}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
-      <td class="num">${acao}</td></tr>`;
-  }).join("");
+      <td class="num">${v.status ? chipStatus(v.status)
+        : `<button class="primario" data-acao="ja-enviei" data-link="${esc(v.link)}">Já enviei</button>`}</td></tr>`).join("");
   const mais = lista.length > f.limite ? `<div class="barra" style="justify-content:center;margin-top:12px">
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
   return barra + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
@@ -477,31 +319,29 @@ conteudo.addEventListener("click", async e => {
   const b = e.target.closest("[data-acao]"); if (!b || b.tagName === "SELECT" || b.tagName === "INPUT") return;
   const { acao, id } = b.dataset;
   try {
-    if (acao === "montar") { await api("/api/decidir", { id, montar: true }); aviso("Montando o kit…"); }
-    else if (acao === "pular") { await api("/api/decidir", { id, montar: false }); aviso("Vaga pulada."); }
-    else if (acao === "gerar") { b.disabled = true; await api("/api/gerar", { link: b.dataset.link }); aviso("Kit na fila."); }
-    else if (acao === "abrir") { abrirGaveta(id); return; }
-    else if (acao === "funil") { filtroFunil = b.dataset.filtro; desenhar(); return; }
-    else if (acao === "mais") { filtroVagas.limite += 150; desenhar(); return; }
-    else if (acao === "enviada") { await api("/api/status", { id, status: "enviada" }); aviso("Marcada como enviada."); }
-    else if (acao === "ja-enviei") {
-      const v = dados.vagas.find(x => x.link === b.dataset.link);
-      b.disabled = true;
-      await api("/api/candidatura", v);
-      aviso("Marcada como enviada — está na aba Candidaturas.");
-    }
-    else if (acao === "nova-cand") {
+    if (acao === "funil") { filtroFunil = b.dataset.filtro; desenhar(); return; }
+    if (acao === "mais") { filtroVagas.limite += 150; desenhar(); return; }
+    if (acao === "nova-cand") {
       formCand = { enviada_em: hojeISO() }; desenhar();
       document.querySelector('#form-cand [name="titulo"]').focus(); return;
     }
-    else if (acao === "cancelar-cand") { formCand = null; desenhar(); return; }
-    await carregar(); agendar();
+    if (acao === "cancelar-cand") { formCand = null; desenhar(); return; }
+    if (acao === "ja-enviei") {
+      b.disabled = true;
+      await api("/api/candidatura", dados.vagas.find(x => x.link === b.dataset.link));
+      aviso("Marcada como enviada — está na aba Candidaturas.");
+    } else if (acao === "excluir") {
+      const c = dados.candidaturas.find(x => x.id === id);
+      if (!confirm(`Excluir o registro de “${c.titulo}” (${c.empresa})?`)) return;
+      await api("/api/excluir", { id }); aviso("Registro excluído.");
+    }
+    await carregar();
   } catch (err) { aviso(err.message); b.disabled = false; }
 });
 conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
-  if (el.id === "semkit") { filtroVagas.semKit = el.checked; desenhar(); return; }
+  if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
   try {
     if (el.dataset.acao === "status") { await api("/api/status", { id: el.dataset.id, status: el.value }); aviso("Status atualizado."); }
     else if (el.dataset.acao === "notas") { await api("/api/notas", { id: el.dataset.id, notas: el.value }); aviso("Anotação salva."); }
@@ -517,99 +357,24 @@ conteudo.addEventListener("input", e => {
   desenhar();
   const novo = document.getElementById("busca"); novo.focus(); novo.setSelectionRange(pos, pos);
 });
-
-// --- gaveta do kit ---------------------------------------------------------------
-function realcarMarcadores(texto) {
-  return esc(texto).replace(/\[[^\]]{3,80}\]/g, m => `<mark>${m}</mark>`);
-}
-let gavetaGerando = false;
-function atualizarTopoGaveta() {
-  const c = dados.candidaturas.find(x => x.id === gavetaId); if (!c) return;
-  // terminou de refazer com a gaveta aberta: mostra o kit novo
-  if (gavetaGerando && !c.gerando) { gavetaGerando = false; abrirGaveta(c.id); return; }
-  gavetaGerando = !!c.gerando;
-  const topo = document.getElementById("gaveta-topo-acoes"); if (!topo) return;
-  let acoes = "";
-  if (c.gerando) acoes = `<span class="chip s-pronta"><span class="giro"></span> ${trabalhando("Refazendo o kit")}</span>`;
-  else {
-    if (c.status === "pronta") acoes += `<button class="primario" data-gacao="enviada">Marcar como enviada</button>`;
-    acoes += `<button data-gacao="refazer">Refazer kit</button>`;
-    if (dados.modo !== "nuvem") acoes += `<button data-gacao="pasta">Abrir pasta</button>`;
-    if (c.status === "pronta") acoes += `<button class="perigo" data-gacao="encerrada">Descartar</button>`;
+document.addEventListener("submit", async e => {
+  e.preventDefault();
+  if (e.target.id === "form-cand") {
+    try {
+      await api("/api/candidatura", formCand);
+      formCand = null; filtroFunil = "ativas";
+      aviso("Candidatura adicionada.");
+      await carregar();
+    } catch (err) { aviso(err.message); }
+  } else if (e.target.id === "login") {
+    try {
+      await api("/api/login", { senha: document.getElementById("senha").value });
+      await carregar(); agendar();
+    } catch (err) { document.getElementById("login-erro").textContent = err.message; }
   }
-  topo.innerHTML = chipStatus(c.status) + acoes + `<a href="${esc(c.link)}" target="_blank" rel="noopener"><button>Ver vaga ↗</button></a>`;
-}
-async function abrirGaveta(id) {
-  const c = dados.candidaturas.find(x => x.id === id); if (!c) return;
-  gavetaId = id;
-  const g = document.getElementById("gaveta");
-  g.innerHTML = `<div class="gaveta-topo">
-      <div><h2>${esc(c.titulo)}</h2><div class="sub">${esc(c.empresa)} · nota ${nota(c.nota_fit)}</div></div>
-      <div class="acoes" id="gaveta-topo-acoes"></div>
-      <button class="fechar" data-gacao="fechar" aria-label="Fechar">Fechar ✕</button></div>
-    <div class="gaveta-corpo">
-      ${c.pdf ? `<iframe src="/pdf/${c.id}?v=${encodeURIComponent(c.gerado_em || "")}#view=FitH" title="CV em PDF"></iframe>`
-              : `<div class="vazio">Sem PDF (o Word não estava disponível ao gerar).</div>`}
-      <div class="lado" id="gaveta-lado"><div class="sub">Carregando…</div></div></div>`;
-  g.classList.add("aberta"); document.getElementById("gaveta-fundo").classList.add("aberta");
-  atualizarTopoGaveta();
-  let k;
-  try { k = await api(`/api/kit/${id}`); } catch (err) { document.getElementById("gaveta-lado").innerHTML = `<div class="erro">${esc(err.message)}</div>`; return; }
-  const a = c.alertas || {};
-  const check = [];
-  (a.preencher || []).forEach(m => check.push(`Preencher <mark>${esc(m)}</mark>`));
-  (a.numeros || []).forEach(n => check.push(`Conferir número que não está no CV nem nas regras: ${esc(n)}`));
-  if (a.termos?.length) check.push(`Tirar o que as regras proíbem: ${esc(a.termos.join(", "))}`);
-  if (a.paginas) check.push(`O CV ficou com ${a.paginas} página(s), não 2`);
-  if (a.pdf_na_pasta === false) check.push(`O PDF não foi para a pasta de CVs (já existia um com o mesmo nome, ou a pasta não estava configurada). Use “Refazer kit” para substituir.`);
-  const lac = (c.lacunas || []).map(l => `<li><strong>${esc(l.requisito)}</strong>${l.motivo ? ` — <span class="sub">${esc(l.motivo)}</span>` : ""}</li>`).join("");
-  textosCopia = { carta: k.kit.carta };
-  k.kit.respostas.forEach((r, i) => { textosCopia["r" + i] = r.resposta; });
-  document.getElementById("gaveta-lado").innerHTML = `
-    <div class="bloco"><h4>Antes de enviar</h4>${check.length ? `<ul class="checklist">${check.map(x => `<li>${x}</li>`).join("")}</ul>` : `<span class="chip ok">Sem pendências</span>`}</div>
-    ${lac ? `<div class="bloco"><h4>Lacunas que você aceitou</h4><ul class="checklist">${lac}</ul></div>` : ""}
-    <div class="bloco"><h4 style="display:flex;align-items:center;gap:8px">Carta <button class="copiar" data-copiar="carta">Copiar</button></h4>
-      <div class="texto">${realcarMarcadores(k.kit.carta)}</div></div>
-    <div class="bloco"><h4>Respostas para o formulário</h4><div style="display:flex;flex-direction:column;gap:8px">
-      ${k.kit.respostas.map((r, i) => `<div class="resposta"><div class="perg"><span>${esc(r.pergunta)}</span>
-        <button class="copiar" data-copiar="r${i}">Copiar</button></div><div>${realcarMarcadores(r.resposta)}</div></div>`).join("")}</div></div>
-    <div class="bloco"><h4>Palavras-chave da vaga que o CV cobre</h4><div class="sub">${esc(k.kit.palavras_chave.join(", "))}</div></div>
-    <div class="bloco sub">Variante ${esc(k.kit.variante)} · ${k.kit.idioma === "en" ? "inglês" : "português"} · gerado em ${dataBR(k.gerado_em)}${c.custo ? ` · US$ ${Number(c.custo).toFixed(2)}` : ""}</div>`;
-}
-let textosCopia = {};
-function fecharGaveta() {
-  gavetaId = null;
-  document.getElementById("gaveta").classList.remove("aberta");
-  document.getElementById("gaveta-fundo").classList.remove("aberta");
-}
-document.getElementById("gaveta-fundo").addEventListener("click", fecharGaveta);
-document.addEventListener("keydown", e => { if (e.key === "Escape" && gavetaId) fecharGaveta(); });
-document.getElementById("gaveta").addEventListener("click", async e => {
-  const cp = e.target.closest("[data-copiar]");
-  if (cp) {
-    try { await navigator.clipboard.writeText(textosCopia[cp.dataset.copiar]); aviso("Copiado."); }
-    catch { aviso("Não consegui copiar — selecione o texto à mão."); }
-    return;
-  }
-  const b = e.target.closest("[data-gacao]"); if (!b) return;
-  const acao = b.dataset.gacao;
-  try {
-    if (acao === "fechar") return fecharGaveta();
-    if (acao === "pasta") return void await api("/api/abrir", { id: gavetaId });
-    if (acao === "refazer") { await api("/api/refazer", { id: gavetaId }); aviso("Refazendo o kit…"); }
-    if (acao === "enviada" || acao === "encerrada") {
-      await api("/api/status", { id: gavetaId, status: acao });
-      aviso(acao === "enviada" ? "Marcada como enviada." : "Kit descartado.");
-      fecharGaveta();
-    }
-    await carregar(); agendar();
-  } catch (err) { aviso(err.message); }
 });
 
-carregar().then(() => {
-  if (hash.startsWith("kit=")) abrirGaveta(hash.slice(4));
-  agendar();
-});
+carregar().then(agendar);
 </script>
 </body>
 </html>

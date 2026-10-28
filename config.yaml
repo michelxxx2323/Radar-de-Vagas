@@ -698,18 +698,6 @@ avisos:
   recomendacoes: [aplicar_agora]
   nota_minima: 0
 
-# Kit de candidatura (CV adaptado em PDF + carta + respostas) — ver kit.py. A
-# chave fica no .env (ANTHROPIC_API_KEY); as regras do CV, no regras-cv.md
-# (fora do git). `esforco` (low/medium/high) troca profundidade do raciocínio
-# por custo; medium saiu a ~US$ 0,26 por kit com as regras (28/10/2026; menos
-# nos kits seguintes da mesma rodada, pelo cache). `pasta_pdf`:
-# para onde vai a cópia do PDF (28/10/2026, pedido do Michel: só o PDF, nunca
-# o docx; deixe vazio pra ficar só em output/kits/).
-kit:
-  modelo: "claude-opus-5-5"
-  esforco: "medium"
-  pasta_pdf: "~/OneDrive/Documentos/CVs- Claude"
-
 # Quantas buscas da coleta rodam ao mesmo tempo (no total). Por site, o limite
 # é menor (4; beBee 2) — ver _SIMULTANEAS_POR_FONTE no screen.py.
 collect_workers: 16

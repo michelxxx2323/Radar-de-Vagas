@@ -268,7 +268,8 @@ def criar_app(banco: Banco | None = None) -> Flask:
     @pc
     def pc_estado():
         banco.gravar_meta("pc_visto_em", _agora())
-        return jsonify(candidaturas=banco.candidaturas(), relatorio=banco.meta("relatorio"))
+        return jsonify(candidaturas=banco.candidaturas(), relatorio=banco.meta("relatorio"),
+                       assinatura=banco.meta("assinatura"))
 
     @app.put("/api/pc/vagas")
     @pc
@@ -276,6 +277,7 @@ def criar_app(banco: Banco | None = None) -> Flask:
         corpo = request.json
         banco.substituir_vagas(corpo["vagas"])
         banco.gravar_meta("relatorio", corpo["relatorio"])
+        banco.gravar_meta("assinatura", corpo.get("assinatura", ""))
         return jsonify(ok=True)
 
     @app.errorhandler(400)

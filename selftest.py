@@ -45,6 +45,7 @@ from screen import (  # noqa: E402
     ajustar_recomendacao,
     build_questions,
     completar_descricoes_bebee,
+    datar_vagas,
     load_cache,
     normalize_key,
     save_cache,
@@ -920,6 +921,35 @@ def test_cache_reuse():
     print("OK  test_cache_reuse")
 
 
+def test_adicionada_em():
+    cv_text = Path("cv.txt").read_text(encoding="utf-8")
+    questions = build_questions()
+
+    def vaga(n):
+        return {"id": f"fake:{n}", "fonte": "fake", "titulo": f"Analista de RevOps {n}", "empresa": "Acme",
+                "cidade": "São Paulo", "estado": "SP", "remoto": False, "link": f"https://example.com/{n}",
+                "publicado_em": "", "descricao": "Revenue Operations, forecasting, pipeline."}
+
+    # 1º dia: as duas são novas
+    jobs = [vaga(1), vaga(2)]
+    datar_vagas(jobs, {}, "2026-10-28")
+    results, cache, _, _ = score_jobs_with_cache(MockJevClient(), cv_text, jobs, questions, {})
+    assert {r["adicionada_em"] for r in results} == {"2026-10-28"}
+    assert cache[normalize_key(vaga(1))]["_adicionada_em"] == "2026-10-28"
+
+    # 2º dia: a 1 continua com a data em que apareceu, a 3 é de hoje; uma vaga
+    # do histórico de antes da data existir fica sem data (e não vira "nova")
+    sem_data = {k: v for k, v in cache[normalize_key(vaga(1))].items() if k != "_adicionada_em"}
+    cache[normalize_key(vaga(4))] = sem_data
+    jobs = [vaga(1), vaga(3), vaga(4)]
+    datar_vagas(jobs, cache, "2026-10-29")
+    results, cache2, _, _ = score_jobs_with_cache(MockJevClient(), cv_text, jobs, questions, cache)
+    assert [r["adicionada_em"] for r in results] == ["2026-10-28", "2026-10-29", ""]
+    assert cache2[normalize_key(vaga(1))]["_adicionada_em"] == "2026-10-28"
+    assert "_adicionada_em" not in cache2[normalize_key(vaga(4))]
+    print("OK  test_adicionada_em")
+
+
 def test_scoring_and_ranking_end_to_end():
     cv_text = Path("cv.txt").read_text(encoding="utf-8")
     client = MockJevClient()
@@ -1141,6 +1171,17 @@ def test_nuvem_e_sincronizar():
             copia = json.loads((out / "candidaturas.json").read_text(encoding="utf-8"))
             assert len(copia) == 1 and copia[0]["status"] == "entrevista" and copia[0]["notas"] == "falar com a Ana"
             assert [h["status"] for h in copia[0]["historico"]] == ["enviada", "entrevista"]
+
+            # 2ª rodada no mesmo dia: o relatório tem o mesmo nome, mas as vagas mudaram
+            _montar_saida(out, [
+                {"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
+                 "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": ""},
+                {"recomendacao": "aplicar_agora", "nota_fit": "8.5", "titulo": "Analista de Marketplace",
+                 "empresa": "Epsilon", "fonte": "gupy", "link": "https://x/4", "descricao": ""},
+            ])
+            assert sinc.sincronizar(config, nuvem) == {"vagas": 2, "candidaturas": 1}
+            p = navegador.get("/api/painel").get_json()
+            assert [v["titulo"] for v in p["vagas"]] == ["Analista de RevOps", "Analista de Marketplace"]
     print("OK  test_nuvem_e_sincronizar")
 
 
@@ -1166,6 +1207,7 @@ if __name__ == "__main__":
     test_ajuste_junior()
     test_cache_versao()
     test_cache_reuse()
+    test_adicionada_em()
     test_bebee_descricao_completa_repontua()
     test_scoring_and_ranking_end_to_end()
     test_nuvem_e_sincronizar()

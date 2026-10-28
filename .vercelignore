@@ -1,0 +1,7 @@
+# O projeto na Vercel tem Root Directory = web, então o deploy sai da raiz do
+# repositório — e o CLI não lê o .gitignore. Só a pasta web/ sobe; .env,
+# cv.txt, output/ etc. ficam no PC.
+/*
+!/web
+/web/.vercel
+/web/.env*

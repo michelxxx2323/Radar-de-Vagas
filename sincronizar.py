@@ -4,7 +4,8 @@ Liga o PC ao painel de candidaturas na nuvem (pasta web/, publicada na Vercel).
 
 Chamado pelo rodar_diario.bat depois da coleta:
 1. sobe as vagas "aplicar agora" e "avaliar" do relatório do dia, para a aba
-   "Vagas de hoje" (só quando o relatório mudou);
+   "Vagas de hoje" (só quando as vagas mudaram, mesmo que o nome do relatório
+   seja o mesmo);
 2. baixa as candidaturas registradas no painel para output/candidaturas.json —
    uma cópia de segurança no PC, caso o banco da nuvem se perca.
 
@@ -30,7 +31,7 @@ from novidades import _ler_env
 
 # o que a aba "Vagas de hoje" recebe de cada vaga do relatório
 CAMPOS_LISTA = ["nota_fit", "recomendacao", "titulo", "empresa", "fonte", "cidade", "remoto",
-                "salario", "publicado_em", "link"]
+                "salario", "publicado_em", "adicionada_em", "link"]
 
 
 class Nuvem:
@@ -51,8 +52,16 @@ class Nuvem:
     def estado(self) -> dict:
         return self._req("GET", "/api/pc/estado")
 
-    def subir_vagas(self, relatorio: str, vagas: list[dict]) -> None:
-        self._req("PUT", "/api/pc/vagas", json={"relatorio": relatorio, "vagas": vagas})
+    def subir_vagas(self, relatorio: str, vagas: list[dict], assinatura: str) -> None:
+        self._req("PUT", "/api/pc/vagas", json={"relatorio": relatorio, "vagas": vagas, "assinatura": assinatura})
+
+
+def assinatura(vagas: list[dict]) -> str:
+    """Impressão digital do conteúdo das vagas. Comparar só o nome do relatório
+    não basta: uma 2ª rodada no mesmo dia regrava vagas_triadas_<data>.csv com
+    o mesmo nome (28/10/2026: a rodada da madrugada e a das 11h, e o painel
+    ficou com as vagas da madrugada)."""
+    return hashlib.sha1(json.dumps(vagas, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def vagas_do_relatorio(out_dir: Path) -> tuple[str, list[dict]]:
@@ -78,8 +87,8 @@ def sincronizar(config: dict, nuvem: Nuvem) -> dict:
 
     relatorio, vagas = vagas_do_relatorio(out_dir)
     subidas = 0
-    if relatorio and relatorio != remoto["relatorio"]:
-        nuvem.subir_vagas(relatorio, vagas)
+    if relatorio and assinatura(vagas) != remoto.get("assinatura"):
+        nuvem.subir_vagas(relatorio, vagas, assinatura(vagas))
         subidas = len(vagas)
 
     copia = out_dir / "candidaturas.json"

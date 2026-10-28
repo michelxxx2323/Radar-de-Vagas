@@ -539,6 +539,8 @@ def score_jobs_with_cache(
             e["_versao"] = versao
         if r.get("_desc_completa"):
             e["_desc_completa"] = True
+        if r.get("adicionada_em"):
+            e["_adicionada_em"] = r["adicionada_em"]
         return e
 
     # 1) separa o que dá pra reaproveitar do que precisa ir pro Jev
@@ -630,6 +632,17 @@ def completar_descricoes_bebee(jobs: list[dict], cache: dict, versao: str, worke
     return completadas
 
 
+def datar_vagas(jobs: list[dict], historico: dict, hoje: str) -> None:
+    """Preenche `adicionada_em`: o dia em que a vaga apareceu pela 1ª vez (o
+    painel marca como "nova" as do dia do relatório). A data fica no histórico
+    em `_adicionada_em`; vaga que não está no histórico é de hoje. As que já
+    estavam lá antes de 28/10/2026, quando a data passou a ser guardada, ficam
+    sem data."""
+    for job in jobs:
+        anterior = historico.get(normalize_key(job))
+        job["adicionada_em"] = anterior.get("_adicionada_em", "") if anterior is not None else hoje
+
+
 def _apagar_relatorios_antigos(out_dir: Path) -> None:
     """Mantém só o relatório de hoje (vagas_triadas_*.csv/.xlsx e novas_*.csv) —
     pedido do Michel em 26/10/2026, pra não acumular uma planilha por dia.
@@ -716,7 +729,11 @@ def main():
     # O histórico do modo --mock fica separado, pra notas simuladas nunca
     # contaminarem as reais.
     cache_path = out_dir / ("historico_mock.json" if args.mock else "historico.json")
-    cache = {} if args.no_cache else load_cache(cache_path)
+    # com --no-cache as notas são ignoradas, mas a data em que cada vaga
+    # apareceu continua valendo
+    historico = load_cache(cache_path)
+    cache = {} if args.no_cache else historico
+    datar_vagas(jobs, historico, dt.date.today().isoformat())
 
     preferencias = carregar_preferencias(config)
     questions = build_questions(com_preferencias=bool(preferencias))
@@ -777,6 +794,7 @@ def main():
         "salario",
         "fonte",
         "publicado_em",
+        "adicionada_em",
         "link",
         "ajuste",
     ]

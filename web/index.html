@@ -11,6 +11,7 @@
     --enviada: #5b3fb0; --enviada-bg: #ece6fb; --entrevista: #0f766e; --entrevista-bg: #dcf3f0;
     --oferta: #1d7a35; --oferta-bg: #dff3e4; --recusada: #b42318; --recusada-bg: #fde7e5;
     --encerrada: #6b7280; --encerrada-bg: #eef0f2; --alerta: #b42318; --atraso: #b26a00;
+    --nova: #1f4e79; --nova-bg: #e1ecf7;
     --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   }
   @media (prefers-color-scheme: dark) {
@@ -20,6 +21,7 @@
       --enviada: #b3a1f0; --enviada-bg: #2b2346; --entrevista: #5fd0c2; --entrevista-bg: #143532;
       --oferta: #6fd68a; --oferta-bg: #173520; --recusada: #f2877d; --recusada-bg: #3d1d1a;
       --encerrada: #9aa5b1; --encerrada-bg: #262c34; --alerta: #f2877d; --atraso: #f0b44c; --shadow: none;
+      --nova: #8cc0ef; --nova-bg: #1b2c3d;
     }
   }
   * { box-sizing: border-box; }
@@ -91,6 +93,7 @@
   .s-oferta { background: var(--oferta-bg); color: var(--oferta); }
   .s-recusada { background: var(--recusada-bg); color: var(--recusada); }
   .s-encerrada { background: var(--encerrada-bg); color: var(--encerrada); }
+  .chip.nova { background: var(--nova-bg); color: var(--nova); font-weight: 600; margin-left: 6px; }
 
   .funil { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .funil button { display: flex; flex-direction: column; align-items: flex-start; min-width: 110px;
@@ -129,7 +132,7 @@ const hash = location.hash.slice(1);
 let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
 if (!ABAS.some(a => a.id === aba)) aba = "candidaturas";
 let filtroFunil = "ativas";
-let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, limite: 150 };
+let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, novas: false, limite: 150 };
 // rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
 // a atualização automática da página não apagar o que foi digitado
 let formCand = null;
@@ -160,6 +163,10 @@ function haQuantoTempo(iso) {
   if (min < 48 * 60) return `há ${Math.round(min / 60)} h`;
   return `há ${Math.round(min / 1440)} dias`;
 }
+// "vagas_triadas_2026-10-28.csv" -> "2026-10-28"
+function dataRelatorio() { return (dados.relatorio || "").replace("vagas_triadas_", "").replace(".csv", ""); }
+// nova = apareceu no radar pela 1ª vez no dia do relatório
+function ehNova(v) { return !!v.adicionada_em && v.adicionada_em === dataRelatorio(); }
 function aviso(texto) {
   const el = document.getElementById("aviso");
   el.textContent = texto; el.classList.add("visivel");
@@ -198,7 +205,7 @@ async function carregar() {
   catch (e) { if (!document.getElementById("login")) aviso("Não consegui falar com o painel: " + e.message); return; }
   document.getElementById("sair").hidden = false;
   const meta = document.getElementById("meta");
-  const data = dados.relatorio ? dados.relatorio.replace("vagas_triadas_", "").replace(".csv", "") : "";
+  const data = dataRelatorio();
   meta.textContent = data ? `Vagas de ${dataBR(data)}` + (dados.pc_visto_em ? ` · PC sincronizou ${haQuantoTempo(dados.pc_visto_em)}` : "")
     : "O PC ainda não mandou as vagas";
   // a rodada é diária: mais de um dia e meio sem notícia do PC merece um aviso
@@ -287,7 +294,9 @@ function abaVagas() {
   const lista = dados.vagas.filter(v =>
     (f.rec === "todas" || v.recomendacao === f.rec) &&
     (!f.esconder || !v.status) &&
+    (!f.novas || ehNova(v)) &&
     (!busca || `${v.titulo} ${v.empresa}`.toLowerCase().includes(busca)));
+  const novas = lista.filter(ehNova).length;
   const barra = `<div class="barra">
     <input type="search" id="busca" placeholder="Buscar por vaga ou empresa" value="${esc(f.busca)}">
     <select id="rec">
@@ -296,13 +305,15 @@ function abaVagas() {
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
     <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder as que já enviei</label>
-    <span class="sub">${lista.length} vaga(s)</span></div>`;
+    <label class="sub"><input type="checkbox" id="novas" ${f.novas ? "checked" : ""}> Só as novas</label>
+    <span class="sub">${lista.length} vaga(s)${novas ? ` · ${novas} nova(s)` : ""}</span></div>`;
   if (!dados.vagas.length) return barra + `<div class="vazio">As vagas do dia chegam quando o PC roda a coleta diária.</div>`;
   if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
   const linhas = lista.slice(0, f.limite).map(v => `<tr>
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
-      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>
+      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}
         <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}</div></td>
+      <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
       <td class="sub">${esc(v.fonte)}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
       <td class="num">${v.status ? chipStatus(v.status)
@@ -310,7 +321,7 @@ function abaVagas() {
   const mais = lista.length > f.limite ? `<div class="barra" style="justify-content:center;margin-top:12px">
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
   return barra + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
-    <th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
+    <th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
 }
 
 // --- ações ---------------------------------------------------------------------
@@ -342,6 +353,7 @@ conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
+  if (el.id === "novas") { filtroVagas.novas = el.checked; filtroVagas.limite = 150; desenhar(); return; }
   try {
     if (el.dataset.acao === "status") { await api("/api/status", { id: el.dataset.id, status: el.value }); aviso("Status atualizado."); }
     else if (el.dataset.acao === "notas") { await api("/api/notas", { id: el.dataset.id, notas: el.value }); aviso("Anotação salva."); }

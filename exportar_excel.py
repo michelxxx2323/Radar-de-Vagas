@@ -35,6 +35,7 @@ COLUNAS = [
     ("confianca", "Confiança", 11),
     ("fonte", "Fonte", 13),
     ("publicado_em", "Publicada em", 22),
+    ("adicionada_em", "Apareceu no radar em", 14),
 ]
 
 CORES = {

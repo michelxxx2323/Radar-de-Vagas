@@ -14,13 +14,14 @@ Ambos devolvem o mesmo formato de resposta da API real:
 """
 from __future__ import annotations
 
-import os
 import random
 import re
 import time
 from dataclasses import dataclass
 
 import requests
+
+from novidades import _ler_env
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 
@@ -37,10 +38,12 @@ class JevClient:
     timeout: int = 30
 
     def __post_init__(self):
-        self.api_key = self.api_key or os.environ.get("TYPESAFE_API_KEY")
+        # variável de ambiente ou, se não houver, a linha do .env desta pasta
+        # (a tarefa agendada roda sem o shell do usuário, então o .env basta)
+        self.api_key = self.api_key or _ler_env("TYPESAFE_API_KEY")
         if not self.api_key:
             raise JevError(
-                "Nenhuma TYPESAFE_API_KEY encontrada. Defina a variável de ambiente "
+                "Nenhuma TYPESAFE_API_KEY encontrada. Coloque a chave no .env desta pasta "
                 "(veja .env.example) ou rode com --mock para testar sem chave."
             )
 

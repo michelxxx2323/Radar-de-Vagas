@@ -303,8 +303,14 @@ function desenhar() {
 }
 
 // --- Lacunas (lacunas.py, calculado pelo PC a cada rodada) -----------------------
+// provável lacuna: bem mais citado onde o Jev aponta gap — menos o que você já
+// marcou "Tenho isso" (vai para "Para pôr no CV" e perde a marca)
+function suspeito(l) {
+  const r = revisao(l.termo);
+  return l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO && !(r && r.avaliacao === "tenho");
+}
 function suspeitosLacunas() {
-  return ((dados.lacunas || {}).linhas || []).filter(l => l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO);
+  return ((dados.lacunas || {}).linhas || []).filter(suspeito);
 }
 function revisao(termo) { return (dados.lacunas_revisao || {})[termo]; }
 function abaLacunas() {
@@ -323,7 +329,8 @@ function abaLacunas() {
       ${ex.pct_com_gap}% das vagas em que falta algo e em ${ex.pct_sem_gap}% das vagas em que não falta nada.
       Quando um termo aparece bem mais onde falta algo, ele provavelmente é o que falta, e ganha a marca <span class="chip atraso" style="margin:0">provável lacuna</span>.</p>
       <p class="sub" style="margin:0">Para cada um, diga se <strong>tem isso</strong> (anote onde usou; vai para a lista do que pôr no CV)
-      ou se <strong>é lacuna mesmo</strong>. “Ver vagas” mostra trechos de vagas reais que pedem o termo.</p></div>`;
+      ou se <strong>é lacuna mesmo</strong>. “Ver vagas” mostra trechos de vagas reais que pedem o termo.
+      O que você marca como “Tenho isso” perde a marca de provável lacuna.</p></div>`;
   const listaRev = (titulo, itens, vazio) => `<div class="cartao" style="flex:1;min-width:260px"><h3>${titulo} (${itens.length})</h3>
       ${itens.length ? `<ul style="margin:0;padding-left:18px">${itens.map(([t, r]) => `<li><strong>${esc(t)}</strong>${r.nota ? ` — ${esc(r.nota)}` : ""}</li>`).join("")}</ul>`
         : `<span class="sub">${vazio}</span>`}</div>`;
@@ -336,7 +343,7 @@ function abaLacunas() {
       <option value="todos" ${filtroLacunas.ver === "todos" ? "selected" : ""}>Todos os termos (${L.linhas.length})</option></select>
       <span class="sub">${pendentes.length ? `${pendentes.length} provável(is) lacuna(s) sem revisão` : "Todas as prováveis lacunas revisadas"}</span></div>`;
   const linhas = L.linhas.filter(l => filtroLacunas.ver === "todos" ||
-    (filtroLacunas.ver === "fora" ? !l.no_cv : l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO));
+    (filtroLacunas.ver === "fora" ? !l.no_cv : suspeito(l)));
   const max = Math.max(...L.linhas.map(l => l.pct_vagas), 1);
   const corpo = linhas.map(l => linhaLacuna(l, max)).join("") ||
     `<tr><td colspan="5" class="vazio">Nenhum termo neste filtro.</td></tr>`;
@@ -344,7 +351,7 @@ function abaLacunas() {
     <th>Aparece em…</th><th>No seu CV</th><th>Sua avaliação</th></tr></thead><tbody>${corpo}</tbody></table></div>`;
 }
 function linhaLacuna(l, max) {
-  const susp = l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO, r = revisao(l.termo);
+  const susp = suspeito(l), r = revisao(l.termo);
   const aberta = lacunaAberta && lacunaAberta.termo === l.termo ? lacunaAberta.modo : "";
   const avaliacao = r ? `<span class="chip ${r.avaliacao === "tenho" ? "s-oferta" : "s-recusada"}">${r.avaliacao === "tenho" ? "Tenho isso" : "É lacuna"}</span>
         <button class="discreto" data-acao="lacuna" data-termo="${esc(l.termo)}" data-avaliacao="">Desfazer</button>`
@@ -366,7 +373,8 @@ function linhaLacuna(l, max) {
       <div class="sub" title="Citado sem “desejável”, “diferencial”, “plus”… por perto">${l.obrigatorio} como obrigatório</div></td>
     <td><div class="duas"><span>${l.pct_com_gap}%</span><span><span class="barra-pct gap" style="width:${l.pct_com_gap * 1.5}px"></span>onde falta algo</span>
       <span>${l.pct_sem_gap}%</span><span><span class="barra-pct semgap" style="width:${l.pct_sem_gap * 1.5}px"></span>onde não falta nada</span></div></td>
-    <td class="cv sub">${l.no_cv ? esc(l.no_cv) : `<span style="color:var(--alerta)">não aparece</span>`}</td>
+    <td class="cv sub">${l.no_cv ? esc(l.no_cv) : r && r.avaliacao === "tenho" ? `não aparece no cv.txt, mas você tem${r.nota ? `: ${esc(r.nota)}` : ""}`
+      : `<span style="color:var(--alerta)">não aparece</span>`}</td>
     <td style="white-space:nowrap">${avaliacao}</td></tr>${extra}`;
 }
 

@@ -26,6 +26,12 @@ Colunas:
 Os termos ficam em TERMOS abaixo; dá pra trocar ou completar pelo bloco
 `lacunas` do config.yaml (nome: regex, aplicada ao texto em minúsculas e sem
 acento).
+
+Sua avaliação de cada termo na aba "Lacunas" do painel ("Tenho isso" / "É
+lacuna mesmo") chega ao PC em output/lacunas_revisao.json a cada
+sincronizar.py. O que você marcou "Tenho isso" deixa de ser provável lacuna
+aqui e no painel. Isso não muda a nota do Jev nem pede pontuação nova: o mapa é
+recalculado só a partir do relatório que já existe.
 """
 from __future__ import annotations
 
@@ -132,6 +138,25 @@ def _trecho(texto: str, m: re.Match, depois: int = 16) -> str:
 
 
 N_EXEMPLOS = 3
+DIF_SUSPEITO = 8  # pontos de c/gap - s/gap para virar provável lacuna (igual ao painel)
+
+
+def carregar_revisao(out_dir: Path) -> dict:
+    """Sua avaliação dos termos no painel ({termo: {avaliacao, nota}}), da
+    cópia que o sincronizar.py guarda no PC. Sem a cópia, {}."""
+    path = out_dir / "lacunas_revisao.json"
+    try:
+        rev = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return rev if isinstance(rev, dict) else {}
+
+
+def suspeitos(linhas: list[dict], revisao: dict) -> list[dict]:
+    """Prováveis lacunas: termo bem mais citado nas vagas com gap crítico do
+    que nas sem — menos o que você já marcou "Tenho isso" no painel."""
+    return [r for r in linhas if r["pct_com_gap"] - r["pct_sem_gap"] >= DIF_SUSPEITO
+            and (revisao.get(r["termo"]) or {}).get("avaliacao") != "tenho"]
 
 
 def _trecho_original(descricao: str, rx: re.Pattern, largura: int = 90) -> str:
@@ -257,12 +282,17 @@ def main():
               f"{r['pct_com_gap']:5d}% {r['pct_sem_gap']:5d}%  {cv}")
     # termo bem mais citado nas vagas com gap crítico do que nas sem: candidato
     # a ser o requisito que o Jev diz que falta
-    suspeitos = [r for r in linhas if r["pct_com_gap"] - r["pct_sem_gap"] >= 8]
-    if suspeitos:
-        print("\nMais citados quando o Jev aponta requisito não atendido (c/gap - s/gap >= 8 pontos):")
-        for r in sorted(suspeitos, key=lambda r: r["pct_sem_gap"] - r["pct_com_gap"]):
+    revisao = carregar_revisao(out_dir)
+    provaveis = suspeitos(linhas, revisao)
+    if provaveis:
+        print(f"\nProváveis lacunas (c/gap - s/gap >= {DIF_SUSPEITO} pontos, sem o que você marcou \"Tenho isso\"):")
+        for r in sorted(provaveis, key=lambda r: r["pct_sem_gap"] - r["pct_com_gap"]):
+            confirmada = (revisao.get(r["termo"]) or {}).get("avaliacao") == "lacuna"
             print(f"  {r['termo']}: {r['pct_com_gap']}% x {r['pct_sem_gap']}%"
-                  f"{'' if r['no_cv'] else ' (não está no CV)'}")
+                  f"{' (lacuna confirmada)' if confirmada else '' if r['no_cv'] else ' (não está no CV)'}")
+    tenho = [t for t, r in revisao.items() if (r or {}).get("avaliacao") == "tenho"]
+    if tenho:
+        print(f"\nVocê marcou que tem ({len(tenho)}), então não contam como lacuna: {', '.join(sorted(tenho))}.")
     print(f"\nTabela salva em {path}.")
 
 

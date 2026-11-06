@@ -31,7 +31,7 @@ from novidades import _ler_env
 
 # o que a aba "Vagas de hoje" recebe de cada vaga do relatório
 CAMPOS_LISTA = ["nota_fit", "recomendacao", "titulo", "empresa", "fonte", "cidade", "remoto",
-                "salario", "publicado_em", "adicionada_em", "link"]
+                "salario", "publicado_em", "idade_dias", "adicionada_em", "alerta", "link"]
 
 
 class Nuvem:

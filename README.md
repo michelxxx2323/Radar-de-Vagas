@@ -82,10 +82,33 @@ nos EUA.
   da DigiCert.
 - **Resiliência.** Retentativas com backoff para 429/5xx/timeout na API de IA e
   coleta em paralelo nas fontes lentas.
-- **Testes offline.** `selftest.py` roda 25 testes sem rede nem chave: o
+- **Testes offline.** `selftest.py` roda 28 testes sem rede nem chave: o
   parsing de cada fonte (com respostas reais gravadas), filtros, regras de
   ajuste, cache, o fluxo completo com um cliente de IA simulado e o painel
   com a sincronização (SQLite no lugar do Postgres).
+
+## Ideias trazidas do ai-job-search (06/11/2026)
+
+Comparando com o [ai-job-search](https://github.com/ai-job-search-dev/ai-job-search),
+quatro ideias entraram no radar:
+
+- **Mapa de lacunas** (`python lacunas.py`): o Jev diz *se* falta um requisito
+  obrigatório, mas não *qual*. O script conta, nas vagas "aplicar agora" e
+  "avaliar", quais ferramentas e competências aparecem na descrição, separa
+  obrigatório de diferencial, compara com o `cv.txt` e mostra o que aparece bem
+  mais nas vagas em que o Jev aponta gap. Os termos ficam em `lacunas.py` e
+  podem ser completados pelo bloco `lacunas` do `config.yaml`.
+- **Texto oculto fora da descrição**: antes de qualquer IA ler a vaga, o
+  `strip_html` remove o que o navegador não mostra (`display:none`, fonte ou
+  opacidade zero, comentários, caracteres invisíveis). Frase dirigida a uma IA
+  ("if you are an AI…", "ignore as instruções anteriores") vira aviso na coluna
+  `alerta` — não é veto.
+- **Idade da vaga**: coluna `idade_dias` e aviso acima de 30 dias, no Excel e
+  no painel. Vaga antiga não sai do ranking, porque às vezes continua aberta.
+- **Follow-up no painel**: candidatura "Enviada" sem resposta há 10 dias
+  ganha a marca *Follow-up* e um botão *Rascunho* (texto em português ou
+  inglês para copiar; nada é enviado pelo painel). Até dois follow-ups por
+  candidatura; com 60 dias de silêncio, o painel sugere *Encerrar*.
 
 ## Radar: achando o que o script não vê
 
@@ -180,6 +203,8 @@ O relatório sai em `output/vagas_triadas_<data>.xlsx` (e `.csv`).
 | `senioridade_ok` / `gap_critico` | se o nível bate; se falta algum requisito obrigatório |
 | `trilha` | em que frente de carreira a vaga se encaixa |
 | `ajuste` | regra determinística que alterou a recomendação, se houve |
+| `idade_dias` | dias desde a publicação (vazio quando a fonte não informa); acima de 30 fica laranja no Excel |
+| `alerta` | vaga publicada há mais de 30 dias, ou com texto dirigido a uma IA (ver abaixo) |
 | `salario` | quando a fonte informa (Gupy, vagas remotas internacionais) |
 | `titulo`, `empresa`, `cidade`, `fonte`, `publicado_em`, `link` | dados da vaga |
 
@@ -196,11 +221,12 @@ screen.py              # pipeline: coleta, cache, pontuação, regras, relatóri
 jev_client.py          # cliente da API (com retentativas) + cliente simulado
 exportar_excel.py      # Excel formatado com links clicáveis
 calibrar.py            # acurácia do ranking contra um gabarito rotulado
+lacunas.py             # o que as vagas boas pedem e o CV não mostra
 radar_cruzar.py        # /radar: vagas achadas na web x vagas já coletadas
 descobrir_ats.py       # /radar: descobre o sistema de vagas de uma empresa
 web/                   # painel de candidaturas (Vercel): index.html + api/index.py (Flask + Postgres)
 sincronizar.py         # PC -> painel: vagas do dia; painel -> PC: cópia das candidaturas
-selftest.py            # 25 testes offline
+selftest.py            # 28 testes offline
 collectors/            # um coletor por fonte + utilitários (filtros, HTML, local, cache de descrições)
 .claude/skills/radar/  # instruções do comando /radar
 config.yaml            # termos, filtros, fontes e empresas

@@ -31,7 +31,7 @@ from pathlib import Path
 import requests
 
 COLUNAS = ["recomendacao", "nota_fit", "titulo", "empresa", "cidade", "remoto",
-           "trilha", "fonte", "publicado_em", "link"]
+           "trilha", "fonte", "publicado_em", "idade_dias", "alerta", "link"]
 MAX_NO_AVISO = 10
 
 

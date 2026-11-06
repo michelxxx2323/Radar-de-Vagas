@@ -51,7 +51,8 @@ from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
 from collectors.workday import fetch_workday
 from collectors import _cache as desc_cache
-from collectors._util import _fold, boards_zerados, fora_do_brasil, limpar_boards, title_filter, title_matches
+from collectors._util import (_fold, alerta_texto, boards_zerados, fora_do_brasil, limpar_boards,
+                              remover_invisiveis, title_filter, title_matches)
 from exportar_excel import write_xlsx
 from jev_client import JevClient, JevError, MockJevClient
 
@@ -671,13 +672,55 @@ def datar_vagas(jobs: list[dict], historico: dict, hoje: str) -> None:
         job["adicionada_em"] = anterior.get("_adicionada_em", "") if anterior is not None else hoje
 
 
+# Ideia do /rank do ai-job-search (06/11/2026): vaga publicada há mais de 30
+# dias ganha um aviso, mas não sai do ranking — vaga antiga às vezes continua
+# aberta (e as que fecham saem sozinhas quando somem da fonte).
+DIAS_VAGA_ANTIGA = 30
+
+
+def data_publicacao(valor) -> dt.date | None:
+    """`publicado_em` como data. As fontes mandam ISO ("2026-10-06",
+    "2026-10-06T11:50:37Z"), o Amazon "June  9, 2026" e o We Work Remotely
+    a data do RSS ("Thu, 05 Nov 2026 10:00:00 +0000"). None se não der."""
+    texto = re.sub(r"\s+", " ", str(valor or "")).strip()
+    if not texto:
+        return None
+    if re.match(r"\d{4}-\d{2}-\d{2}", texto):
+        try:
+            return dt.date.fromisoformat(texto[:10])
+        except ValueError:
+            return None
+    try:
+        return dt.datetime.strptime(texto, "%B %d, %Y").date()
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+
+        return parsedate_to_datetime(texto).date()
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def marcar_idade(results: list[dict], hoje: dt.date) -> None:
+    """Preenche `idade_dias` (dias desde a publicação; vazio quando a fonte não
+    informa — InHire, Shopee, TikTok, DiDi) e, acima de DIAS_VAGA_ANTIGA, um
+    aviso no `alerta`."""
+    for r in results:
+        d = data_publicacao(r.get("publicado_em"))
+        r["idade_dias"] = (hoje - d).days if d and d <= hoje else ""
+        if r["idade_dias"] != "" and r["idade_dias"] > DIAS_VAGA_ANTIGA:
+            aviso = f"publicada há {r['idade_dias']} dias"
+            r["alerta"] = f"{r['alerta']} · {aviso}" if r.get("alerta") else aviso
+
+
 def _apagar_relatorios_antigos(out_dir: Path) -> None:
     """Mantém só o relatório de hoje (vagas_triadas_*.csv/.xlsx e novas_*.csv) —
     pedido do Michel em 26/10/2026, pra não acumular uma planilha por dia.
     O histórico de notas fica no historico.json, então nada se perde."""
     hoje = dt.date.today().isoformat()
     apagados = 0
-    for padrao in ("vagas_triadas_*.csv", "vagas_triadas_*.xlsx", "novas_*.csv"):
+    for padrao in ("vagas_triadas_*.csv", "vagas_triadas_*.xlsx", "novas_*.csv", "lacunas_*.csv"):
         for p in out_dir.glob(padrao):
             if hoje in p.name:
                 continue
@@ -774,6 +817,16 @@ def main():
         completar_descricoes_bebee(jobs, workers=_SIMULTANEAS_POR_FONTE["bebee"])
     desc_cache.salvar(desc_cache_path)
 
+    # caracteres invisíveis saem também das descrições que vieram do cache, e
+    # frase dirigida a uma IA vira aviso (collectors/_util.py, alerta_texto)
+    for j in jobs:
+        j["descricao"] = remover_invisiveis(j.get("descricao") or "")
+        j["alerta"] = alerta_texto(j["descricao"])
+    suspeitas = sum(1 for j in jobs if j["alerta"])
+    if suspeitas:
+        print(f"  [aviso] {suspeitas} vagas com texto dirigido a uma IA — veja a coluna `alerta`.",
+              file=sys.stderr)
+
     # vagas completas (com descrição) desta coleta — usadas pelo calibrar.py e pelo kit.py
     coletadas_path = out_dir / "vagas_coletadas.json"
     coletadas_path.write_text(json.dumps(jobs, ensure_ascii=False), encoding="utf-8")
@@ -800,6 +853,7 @@ def main():
     min_score = config.get("min_score", 0)
     results = [ajustar_recomendacao(r) for r in results if r["nota_fit"] >= min_score]
     results.sort(key=lambda r: (RECOMENDACAO_ORDEM.get(r["recomendacao"], 9), -r["nota_fit"]))
+    marcar_idade(results, dt.date.today())
 
     # Vagas que nunca tinham aparecido em nenhuma rodada (não estavam no
     # histórico antes desta). Com histórico vazio ou --no-cache tudo pareceria
@@ -827,9 +881,11 @@ def main():
         "salario",
         "fonte",
         "publicado_em",
+        "idade_dias",
         "adicionada_em",
         "link",
         "ajuste",
+        "alerta",
     ]
     with out_path.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=columns)

@@ -255,6 +255,20 @@ def criar_app(banco: Banco | None = None) -> Flask:
         banco.mudar(entrada(request.json["id"]), notas=request.json["notas"])
         return jsonify(ok=True)
 
+    @app.post("/api/followup")
+    @navegador
+    def followup():
+        """Follow-up enviado (ideia do /outcome followup do ai-job-search): guarda
+        a data em `followups`. O painel sugere o próximo depois de 10 dias de
+        silêncio, no máximo dois por candidatura."""
+        e = entrada(request.json["id"])
+        if e.get("status") != "enviada":
+            abort(400, "Follow-up só para candidatura com status Enviada.")
+        if len(e.get("followups") or []) >= 2:
+            abort(400, "Já foram dois follow-ups nesta candidatura.")
+        banco.mudar(e, followups=[*(e.get("followups") or []), _hoje()])
+        return jsonify(ok=True)
+
     @app.post("/api/excluir")
     @navegador
     def excluir():

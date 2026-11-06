@@ -94,6 +94,12 @@
   .s-recusada { background: var(--recusada-bg); color: var(--recusada); }
   .s-encerrada { background: var(--encerrada-bg); color: var(--encerrada); }
   .chip.nova { background: var(--nova-bg); color: var(--nova); font-weight: 600; margin-left: 6px; }
+  .chip.atraso { background: var(--surface-2); color: var(--atraso); font-weight: 600; margin-left: 6px; }
+  .chip.alerta { background: var(--recusada-bg); color: var(--alerta); font-weight: 600; margin-left: 6px; cursor: help; }
+  .rascunho td { background: var(--surface-2); }
+  .rascunho textarea { width: 100%; min-height: 130px; font: inherit; color: var(--text); background: var(--surface);
+                       border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; resize: vertical; }
+  .rascunho .acoes { margin-top: 8px; align-items: center; }
 
   .funil { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .funil button { display: flex; flex-direction: column; align-items: flex-start; min-width: 110px;
@@ -136,6 +142,15 @@ let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, novas: fals
 // rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
 // a atualização automática da página não apagar o que foi digitado
 let formCand = null;
+// rascunho de follow-up aberto: { id, idioma, texto } (null = fechado)
+let rascunho = null;
+
+// Follow-up (ideia do /outcome followup do ai-job-search, 06/11/2026): 10 dias
+// sem resposta desde o envio ou o último follow-up pede um follow-up, no máximo
+// dois por candidatura; 60 dias de silêncio sugerem encerrar.
+const FOLLOWUP_DIAS = 10, PARADA_DIAS = 60, MAX_FOLLOWUPS = 2;
+// vaga publicada há mais disso ganha aviso (o mesmo limite do screen.py)
+const DIAS_VAGA_ANTIGA = 30;
 
 function lerLocal(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function gravarLocal(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -155,6 +170,35 @@ function diasDesde(iso) {
   if (!iso) return "";
   const d = Math.floor((Date.now() - new Date(iso.slice(0, 10) + "T00:00:00")) / 86400000);
   return d === 0 ? "hoje" : `${d} d`;
+}
+function diasNum(iso) {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso.slice(0, 10) + "T00:00:00")) / 86400000);
+}
+function ultimoContato(c) {
+  return [c.enviada_em, ...(c.followups || [])].filter(Boolean).sort().pop() || "";
+}
+// "followup" | "parada" | "" — o que a candidatura pede agora
+function pendencia(c) {
+  if (c.status !== "enviada") return "";
+  const d = diasNum(ultimoContato(c));
+  if (d === null) return "";
+  if (d >= PARADA_DIAS) return "parada";
+  if (d >= FOLLOWUP_DIAS && (c.followups || []).length < MAX_FOLLOWUPS) return "followup";
+  return "";
+}
+function idiomaPadrao(c) {
+  return /[ãâáàçéêíóôõú]|\b(analista|gerente|coordenador|especialista|vendas|neg[oó]cios)\b/i.test(c.titulo || "") ? "pt" : "en";
+}
+function textoFollowup(c, idioma) {
+  const segundo = (c.followups || []).length > 0;
+  const data = dataBR(c.enviada_em);
+  if (idioma === "en") return segundo
+    ? `Hi! Following up once more on the ${c.titulo} role at ${c.empresa}. I remain interested and available for a conversation whenever it suits you.\n\nBest regards,\nMichel`
+    : `Hi! I applied for the ${c.titulo} role at ${c.empresa} on ${data} and I'm still very interested in the position. I'd love to know if there are any updates on the process, and I'm happy to share anything else that would help.\n\nBest regards,\nMichel`;
+  return segundo
+    ? `Olá! Retomo meu contato sobre a vaga de ${c.titulo} na ${c.empresa}. Sigo interessado e à disposição para uma conversa quando fizer sentido para vocês.\n\nObrigado,\nMichel`
+    : `Olá! Me candidatei à vaga de ${c.titulo} na ${c.empresa} em ${data} e continuo muito interessado na posição. Queria saber se há alguma novidade sobre o processo e se posso enviar alguma informação adicional.\n\nObrigado,\nMichel`;
 }
 function haQuantoTempo(iso) {
   const min = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -213,7 +257,7 @@ async function carregar() {
   desenharAbas();
   // não redesenha embaixo de quem está digitando
   const foco = document.activeElement;
-  if (!(foco && foco.closest("#conteudo") && ["INPUT", "SELECT"].includes(foco.tagName))) desenhar();
+  if (!(foco && foco.closest("#conteudo") && ["INPUT", "SELECT", "TEXTAREA"].includes(foco.tagName))) desenhar();
 }
 function agendar() {
   clearTimeout(agendar.t);
@@ -263,8 +307,10 @@ function abaCandidaturas() {
   const todas = cand(POS);
   const contas = Object.fromEntries(POS.map(s => [s, todas.filter(c => c.status === s).length]));
   const ativas = todas.filter(c => ["enviada", "entrevista", "oferta"].includes(c.status));
-  const botoes = [["ativas", "Em andamento", ativas.length], ...POS.map(s => [s, STATUS[s], contas[s]])];
-  const lista = (filtroFunil === "ativas" ? ativas : todas.filter(c => c.status === filtroFunil))
+  const pedem = todas.filter(c => pendencia(c));
+  const botoes = [["ativas", "Em andamento", ativas.length], ["acao", "Pedem follow-up", pedem.length],
+                  ...POS.map(s => [s, STATUS[s], contas[s]])];
+  const lista = (filtroFunil === "ativas" ? ativas : filtroFunil === "acao" ? pedem : todas.filter(c => c.status === filtroFunil))
     .sort((a, b) => (b.enviada_em || "").localeCompare(a.enviada_em || ""));
   const topo = formularioCandidatura() + `<div class="funil">${botoes.map(([id, rot, n]) => `
     <button class="${filtroFunil === id ? "ativa" : ""}" data-acao="funil" data-filtro="${id}">
@@ -274,17 +320,34 @@ function abaCandidaturas() {
   if (!lista.length) return topo + `<div class="vazio">Nenhuma candidatura neste filtro.</div>`;
   return topo + `<div class="rolagem"><table class="tabela"><thead><tr>
     <th>Vaga</th><th>Status</th><th>Enviada em</th><th class="num">Há</th><th>Anotações</th><th></th></tr></thead><tbody>
-    ${lista.map(c => `<tr>
+    ${lista.map(c => linhaCandidatura(c)).join("")}</tbody></table></div>`;
+}
+function linhaCandidatura(c) {
+  const p = pendencia(c), nf = (c.followups || []).length;
+  const chip = p === "parada" ? `<span class="chip atraso" title="Sem resposta há ${diasNum(ultimoContato(c))} dias">Parada</span>`
+    : p === "followup" ? `<span class="chip atraso" title="${FOLLOWUP_DIAS}+ dias sem resposta">Follow-up</span>` : "";
+  const acao = p === "parada" ? `<button data-acao="encerrar" data-id="${c.id}" title="Mudar o status para Encerrada">Encerrar</button>`
+    : p === "followup" ? `<button data-acao="rascunho" data-id="${c.id}">Rascunho</button>` : "";
+  const fups = nf ? `<div class="sub">${nf} follow-up${nf > 1 ? "s" : ""} · último ${dataBR(c.followups[nf - 1])}</div>` : "";
+  const aberto = rascunho && rascunho.id === c.id ? `<tr class="rascunho"><td colspan="6">
+      <div class="sub" style="margin-bottom:6px">Rascunho de follow-up ${nf + 1} de ${MAX_FOLLOWUPS}. Revise, copie e mande pelo canal onde se candidatou; nada é enviado daqui.</div>
+      <textarea id="texto-rascunho">${esc(rascunho.texto)}</textarea>
+      <div class="acoes">
+        <button data-acao="idioma" data-idioma="${rascunho.idioma === "pt" ? "en" : "pt"}">${rascunho.idioma === "pt" ? "Em inglês" : "Em português"}</button>
+        <button data-acao="copiar">Copiar</button>
+        <button class="primario" data-acao="followup-enviado" data-id="${c.id}">Já mandei este follow-up</button>
+        <button class="discreto" data-acao="fechar-rascunho">Fechar</button></div></td></tr>` : "";
+  return `<tr>
       <td class="vaga">${/^https?:/.test(c.link) ? `<a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>`
           : `<strong>${esc(c.titulo)}</strong>`}
         <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}</div></td>
       <td><select data-acao="status" data-id="${c.id}">${POS.map(s =>
         `<option value="${s}" ${s === c.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></td>
       <td>${dataBR(c.enviada_em)}</td>
-      <td class="num sub">${diasDesde(c.enviada_em)}</td>
+      <td class="num sub">${diasDesde(c.enviada_em)}${chip}${fups}</td>
       <td><input class="notas" data-acao="notas" data-id="${c.id}" value="${esc(c.notas)}" placeholder="ex.: recrutadora Ana, retorno sexta"></td>
-      <td class="num"><button class="discreto" data-acao="excluir" data-id="${c.id}" title="Excluir este registro">Excluir</button></td>
-    </tr>`).join("")}</tbody></table></div>`;
+      <td class="num">${acao}<button class="discreto" data-acao="excluir" data-id="${c.id}" title="Excluir este registro">Excluir</button></td>
+    </tr>${aberto}`;
 }
 
 // --- Vagas de hoje -------------------------------------------------------------
@@ -311,7 +374,9 @@ function abaVagas() {
   if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
   const linhas = lista.slice(0, f.limite).map(v => `<tr>
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
-      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}
+      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}${
+        Number(v.idade_dias) > DIAS_VAGA_ANTIGA ? `<span class="chip atraso" title="Publicada em ${esc(v.publicado_em)}">no ar há ${esc(v.idade_dias)} d</span>` : ""}${
+        /dirigido a IA/.test(v.alerta || "") ? `<span class="chip alerta" title="${esc(v.alerta)}">⚠ texto suspeito</span>` : ""}
         <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}</div></td>
       <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
       <td class="sub">${esc(v.fonte)}</td>
@@ -337,10 +402,30 @@ conteudo.addEventListener("click", async e => {
       document.querySelector('#form-cand [name="titulo"]').focus(); return;
     }
     if (acao === "cancelar-cand") { formCand = null; desenhar(); return; }
+    if (acao === "rascunho") {
+      const c = dados.candidaturas.find(x => x.id === id), idioma = idiomaPadrao(c);
+      rascunho = { id, idioma, texto: textoFollowup(c, idioma) }; desenhar(); return;
+    }
+    if (acao === "idioma") {
+      const c = dados.candidaturas.find(x => x.id === rascunho.id);
+      rascunho = { ...rascunho, idioma: b.dataset.idioma, texto: textoFollowup(c, b.dataset.idioma) }; desenhar(); return;
+    }
+    if (acao === "copiar") {
+      await navigator.clipboard.writeText(rascunho.texto).then(() => aviso("Copiado."), () => aviso("Não consegui copiar; selecione o texto."));
+      return;
+    }
+    if (acao === "fechar-rascunho") { rascunho = null; desenhar(); return; }
     if (acao === "ja-enviei") {
       b.disabled = true;
       await api("/api/candidatura", dados.vagas.find(x => x.link === b.dataset.link));
       aviso("Marcada como enviada — está na aba Candidaturas.");
+    } else if (acao === "followup-enviado") {
+      b.disabled = true;
+      await api("/api/followup", { id }); rascunho = null; aviso("Follow-up registrado.");
+    } else if (acao === "encerrar") {
+      const c = dados.candidaturas.find(x => x.id === id);
+      if (!confirm(`Encerrar “${c.titulo}” (${c.empresa})? Sem resposta há ${diasNum(ultimoContato(c))} dias.`)) return;
+      await api("/api/status", { id, status: "encerrada" }); aviso("Candidatura encerrada.");
     } else if (acao === "excluir") {
       const c = dados.candidaturas.find(x => x.id === id);
       if (!confirm(`Excluir o registro de “${c.titulo}” (${c.empresa})?`)) return;
@@ -363,6 +448,7 @@ conteudo.addEventListener("change", async e => {
 });
 conteudo.addEventListener("input", e => {
   if (formCand && e.target.closest("#form-cand")) { formCand[e.target.name] = e.target.value; return; }
+  if (rascunho && e.target.id === "texto-rascunho") { rascunho.texto = e.target.value; return; }
   if (e.target.id !== "busca") return;
   filtroVagas.busca = e.target.value; filtroVagas.limite = 150;
   const pos = e.target.selectionStart;

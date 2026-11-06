@@ -35,8 +35,14 @@ COLUNAS = [
     ("confianca", "Confiança", 11),
     ("fonte", "Fonte", 13),
     ("publicado_em", "Publicada em", 22),
+    ("idade_dias", "Dias no ar", 10),
     ("adicionada_em", "Apareceu no radar em", 14),
+    ("alerta", "Alerta", 45),
 ]
+
+# acima disso, "Dias no ar" fica laranja (mesmo limite do screen.py)
+DIAS_VAGA_ANTIGA = 30
+LARANJA = "F8CBAD"
 
 CORES = {
     "aplicar_agora": "C6EFCE",  # verde
@@ -73,6 +79,13 @@ def write_xlsx(rows: list[dict], path: Path) -> None:
             elif campo in ("nota_fit", "confianca") and valor not in ("", None):
                 cell.value = float(valor)
                 cell.number_format = "0.0" if campo == "nota_fit" else "0.00"
+            elif campo == "idade_dias" and str(valor).strip().isdigit():
+                cell.value = int(valor)
+                if cell.value > DIAS_VAGA_ANTIGA:
+                    cell.fill = PatternFill("solid", fgColor=LARANJA)
+            elif campo == "alerta" and valor:
+                cell.value = str(valor)
+                cell.font = Font(name=FONTE, color="B42318")
             elif campo == "remoto":
                 cell.value = "sim" if str(valor).lower() in ("true", "1", "sim") else "não"
             else:

@@ -131,6 +131,41 @@ def _trecho(texto: str, m: re.Match, depois: int = 16) -> str:
     return re.sub(r"\s+", " ", m.group(0) + resto).strip()
 
 
+N_EXEMPLOS = 3
+
+
+def _trecho_original(descricao: str, rx: re.Pattern, largura: int = 90) -> str:
+    """O trecho da descrição (com acentos, como a vaga escreveu) em volta da
+    1ª menção ao termo. A busca é no texto sem acento, então monta o mapa de
+    posições caractere a caractere — só para os poucos exemplos mostrados."""
+    dobrado, origem = [], []
+    for i, ch in enumerate(descricao):
+        f = _fold(ch)
+        dobrado.append(f)
+        origem.extend([i] * len(f))
+    m = rx.search("".join(dobrado))
+    if not m or not origem:
+        return ""
+    ini, fim = origem[m.start()], origem[min(m.end(), len(origem)) - 1] + 1
+    trecho = descricao[max(0, ini - largura):fim + largura]
+    return ("…" if ini > largura else "") + re.sub(r"\s+", " ", trecho).strip() + \
+        ("…" if fim + largura < len(descricao) else "")
+
+
+def _sem_repetir(vagas: list[dict]) -> list[dict]:
+    """Até N_EXEMPLOS vagas com títulos diferentes (a mesma vaga às vezes vem
+    de duas empresas do grupo, como AB InBev e BEES)."""
+    vistos, saida = set(), []
+    for v in vagas:
+        chave = _fold(v.get("titulo", "")).strip()
+        if chave not in vistos:
+            vistos.add(chave)
+            saida.append(v)
+        if len(saida) == N_EXEMPLOS:
+            break
+    return saida
+
+
 def mapa(vagas: list[dict], cv_text: str, termos: dict[str, str]) -> list[dict]:
     """Uma linha por termo, da mais citada para a menos citada."""
     com_desc = [v for v in vagas if v.get("descricao")]
@@ -156,6 +191,13 @@ def mapa(vagas: list[dict], cv_text: str, termos: dict[str, str]) -> list[dict]:
         if not vagas_termo:
             continue
         m_cv = rx.search(cv_fold)
+        # exemplos pra conferir se é lacuna mesmo: primeiro as vagas em que o
+        # Jev aponta gap, das de nota mais alta
+        exemplos = sorted((v for v in com_desc if id(v) in citam),
+                          key=lambda v: (v.get("gap_critico") != "sim", -float(v.get("nota_fit") or 0)))
+        exemplos = [{"titulo": v.get("titulo", ""), "empresa": v.get("empresa", ""), "link": v.get("link", ""),
+                     "nota_fit": v.get("nota_fit", ""), "gap_critico": v.get("gap_critico", ""),
+                     "trecho": _trecho_original(v["descricao"], rx)} for v in _sem_repetir(exemplos)]
         pct = lambda grupo: round(100 * sum(1 for v in grupo if id(v) in citam) / len(grupo)) if grupo else 0
         linhas.append({
             "termo": nome,
@@ -165,6 +207,7 @@ def mapa(vagas: list[dict], cv_text: str, termos: dict[str, str]) -> list[dict]:
             "pct_com_gap": pct(gap_sim),
             "pct_sem_gap": pct(gap_nao),
             "no_cv": _trecho(cv_fold, m_cv) if m_cv else "",
+            "exemplos": exemplos,
         })
     linhas.sort(key=lambda r: -r["vagas"])
     return linhas
@@ -200,7 +243,8 @@ def main():
 
     path = out_dir / f"lacunas_{dt.date.today().isoformat()}.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=list(linhas[0]) if linhas else ["termo"])
+        w = csv.DictWriter(f, fieldnames=[k for k in linhas[0] if k != "exemplos"] if linhas else ["termo"],
+                           extrasaction="ignore")
         w.writeheader()
         w.writerows(linhas)
 

@@ -135,12 +135,18 @@ Achar a vaga é metade do trabalho; a outra é acompanhar onde já me candidatei
 Um painel na web (pasta `web/`, publicada na Vercel, com senha) tem três abas:
 
 - **Vagas de hoje**: as vagas "aplicar agora" e "avaliar" do relatório do dia,
-  com busca, nota e um botão "Já enviei";
+  com busca, nota e os botões "Já enviei" e "Descartar" (com o motivo, que
+  fica salvo; "Ver descartadas" mostra a contagem por motivo e a lista);
 - **Candidaturas**: o funil enviada → entrevista → oferta / recusada /
   encerrada, com data de envio, dias desde então e anotações. Vagas de fora do
   relatório (LinkedIn, site da empresa) entram por "+ Adicionar candidatura".
 - **Lacunas**: o mapa do `lacunas.py` — o que as vagas boas pedem e o seu CV
-  não mostra.
+  não mostra, com trechos de vagas reais. Em cada termo você marca "Tenho
+  isso" (com onde usou; entra na lista "Para pôr no CV") ou "É lacuna mesmo".
+
+O `sincronizar.py` guarda no PC uma cópia dos descartes
+(`output/descartes.json`) e da avaliação das lacunas
+(`output/lacunas_revisao.json`).
 
 ```
   PC (rodada diária)                                Vercel

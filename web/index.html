@@ -34,6 +34,7 @@
   button.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   button.discreto { border-color: transparent; background: none; color: var(--muted); padding: 4px 8px; }
   button.discreto:hover { color: var(--alerta); border-color: var(--border); }
+  button.discreto.link, button.discreto.link:hover { color: var(--accent); border-color: transparent; }
   button:disabled { opacity: .55; cursor: default; }
   input, select { font: inherit; color: var(--text); background: var(--surface);
                   border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
@@ -100,7 +101,7 @@
   .barra-pct { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 8px; }
   .barra-pct.gap { background: var(--atraso); }
   .barra-pct.semgap { background: var(--muted); opacity: .6; }
-  .duas { display: grid; grid-template-columns: 44px 1fr; gap: 2px 6px; align-items: center; font-size: 12px; min-width: 190px; }
+  .duas { display: grid; grid-template-columns: 38px 1fr; gap: 2px 6px; align-items: center; font-size: 12px; min-width: 250px; white-space: nowrap; }
   .tabela td.cv { max-width: 320px; }
   .resumo-lacunas { margin: 0 0 14px; max-width: 880px; }
   .rascunho textarea { width: 100%; min-height: 130px; font: inherit; color: var(--text); background: var(--surface);
@@ -139,8 +140,13 @@ const STATUS = { enviada: "Enviada", entrevista: "Entrevista", oferta: "Oferta",
 const ABAS = [{ id: "candidaturas", rotulo: "Candidaturas" }, { id: "vagas", rotulo: "Vagas de hoje" },
               { id: "lacunas", rotulo: "Lacunas" }];
 
-let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "", lacunas: {} };
-let filtroLacunas = { foraDoCv: false };
+let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "", lacunas: {}, lacunas_revisao: {},
+              descartes: [], motivos_descarte: [] };
+let filtroLacunas = { ver: "provaveis" };
+// linha aberta na aba Lacunas: { termo, modo: "tenho" | "exemplos", nota }
+let lacunaAberta = null;
+// descarte aberto na aba Vagas de hoje: { link, motivo, nota }
+let descarte = null;
 // termo bem mais citado nas vagas com gap crítico do que nas sem (mesmo corte do lacunas.py)
 const DIF_SUSPEITO = 8;
 // #vagas ou #candidaturas no endereço escolhe a aba
@@ -148,7 +154,7 @@ const hash = location.hash.slice(1);
 let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
 if (!ABAS.some(a => a.id === aba)) aba = "candidaturas";
 let filtroFunil = "ativas";
-let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, novas: false, limite: 150 };
+let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, novas: false, descartadas: false, limite: 150 };
 // rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
 // a atualização automática da página não apagar o que foi digitado
 let formCand = null;
@@ -280,8 +286,8 @@ function cand(status) { return dados.candidaturas.filter(c => status.includes(c.
 function desenharAbas() {
   const contas = {
     candidaturas: cand(["enviada", "entrevista", "oferta"]).length,
-    vagas: dados.vagas.filter(v => v.recomendacao === "aplicar_agora" && !v.status).length,
-    lacunas: suspeitosLacunas().filter(l => !l.no_cv).length,
+    vagas: dados.vagas.filter(v => v.recomendacao === "aplicar_agora" && !v.status && !v.descartada).length,
+    lacunas: suspeitosLacunas().filter(l => !revisao(l.termo)).length,
   };
   document.getElementById("abas").innerHTML = ABAS.map(a => `
     <button class="${a.id === aba ? "ativa" : ""}" data-aba="${a.id}">${a.rotulo}
@@ -300,32 +306,68 @@ function desenhar() {
 function suspeitosLacunas() {
   return ((dados.lacunas || {}).linhas || []).filter(l => l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO);
 }
+function revisao(termo) { return (dados.lacunas_revisao || {})[termo]; }
 function abaLacunas() {
   const L = dados.lacunas || {};
   if (!(L.linhas || []).length) return `<div class="vazio">O mapa de lacunas chega na próxima vez que o PC rodar a coleta e o sincronizar.py.</div>`;
-  const suspeitos = suspeitosLacunas();
-  const destaque = suspeitos.length ? `<p class="sub">Mais citados quando o Jev aponta requisito obrigatório não atendido:
-      ${suspeitos.map(l => `<strong>${esc(l.termo)}</strong> (${l.pct_com_gap}% x ${l.pct_sem_gap}%${l.no_cv ? "" : ", fora do CV"})`).join(" · ")}</p>` : "";
-  const resumo = `<div class="resumo-lacunas"><p class="sub">O que as ${L.vagas} vagas “aplicar agora” e “avaliar” do relatório de
-      ${dataBR((L.relatorio || "").replace("vagas_triadas_", "").replace(".csv", ""))} pedem, comparado com o seu CV.
-      ${L.com_gap} delas têm requisito obrigatório não atendido segundo o Jev. “Com gap” e “sem gap” mostram em que % de cada grupo o termo aparece:
-      quando “com gap” é bem maior, o termo provavelmente é o que derruba a nota.</p>${destaque}</div>`;
-  const barra = `<div class="barra"><label class="sub"><input type="checkbox" id="fora-cv" ${filtroLacunas.foraDoCv ? "checked" : ""}>
-      Só o que não está no CV</label></div>`;
-  const linhas = L.linhas.filter(l => !filtroLacunas.foraDoCv || !l.no_cv);
+  const rev = dados.lacunas_revisao || {};
+  const tenho = Object.entries(rev).filter(([, r]) => r.avaliacao === "tenho");
+  const confirmadas = Object.entries(rev).filter(([, r]) => r.avaliacao === "lacuna");
+  const pendentes = suspeitosLacunas().filter(l => !rev[l.termo]);
+  const ex = (L.linhas.find(l => l.termo === "SQL") || suspeitosLacunas()[0] || L.linhas[0]);
+  const explica = `<div class="cartao resumo-lacunas">
+      <h3>Como ler esta aba</h3>
+      <p class="sub" style="margin:0">Das ${L.vagas} vagas “aplicar agora” e “avaliar” do relatório de ${dataBR((L.relatorio || "").replace("vagas_triadas_", "").replace(".csv", ""))},
+      o Jev diz que em ${L.com_gap} <strong>falta algum requisito obrigatório</strong> para você, mas não diz qual.
+      Por isso o radar conta que ferramentas e competências cada vaga pede. Exemplo: <strong>${esc(ex.termo)}</strong> aparece em
+      ${ex.pct_com_gap}% das vagas em que falta algo e em ${ex.pct_sem_gap}% das vagas em que não falta nada.
+      Quando um termo aparece bem mais onde falta algo, ele provavelmente é o que falta, e ganha a marca <span class="chip atraso" style="margin:0">provável lacuna</span>.</p>
+      <p class="sub" style="margin:0">Para cada um, diga se <strong>tem isso</strong> (anote onde usou; vai para a lista do que pôr no CV)
+      ou se <strong>é lacuna mesmo</strong>. “Ver vagas” mostra trechos de vagas reais que pedem o termo.</p></div>`;
+  const listaRev = (titulo, itens, vazio) => `<div class="cartao" style="flex:1;min-width:260px"><h3>${titulo} (${itens.length})</h3>
+      ${itens.length ? `<ul style="margin:0;padding-left:18px">${itens.map(([t, r]) => `<li><strong>${esc(t)}</strong>${r.nota ? ` — ${esc(r.nota)}` : ""}</li>`).join("")}</ul>`
+        : `<span class="sub">${vazio}</span>`}</div>`;
+  const resumo = `<div class="acoes" style="margin-bottom:14px;align-items:stretch">
+      ${listaRev("Para pôr no CV", tenho, "Nada ainda. Use “Tenho isso” num termo.")}
+      ${listaRev("Lacunas confirmadas", confirmadas, "Nada ainda. Use “É lacuna mesmo” num termo.")}</div>`;
+  const barra = `<div class="barra"><select id="filtro-lacunas">
+      <option value="provaveis" ${filtroLacunas.ver === "provaveis" ? "selected" : ""}>Prováveis lacunas (${suspeitosLacunas().length})</option>
+      <option value="fora" ${filtroLacunas.ver === "fora" ? "selected" : ""}>Fora do CV</option>
+      <option value="todos" ${filtroLacunas.ver === "todos" ? "selected" : ""}>Todos os termos (${L.linhas.length})</option></select>
+      <span class="sub">${pendentes.length ? `${pendentes.length} provável(is) lacuna(s) sem revisão` : "Todas as prováveis lacunas revisadas"}</span></div>`;
+  const linhas = L.linhas.filter(l => filtroLacunas.ver === "todos" ||
+    (filtroLacunas.ver === "fora" ? !l.no_cv : l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO));
   const max = Math.max(...L.linhas.map(l => l.pct_vagas), 1);
-  return resumo + barra + `<div class="rolagem"><table class="tabela"><thead><tr><th>Termo</th><th>Vagas que citam</th>
-    <th class="num" title="Citado sem “desejável”, “diferencial”, “plus”… por perto">Obrigatório</th><th>Com gap x sem gap</th><th>No seu CV</th></tr></thead><tbody>
-    ${linhas.map(l => {
-      const susp = l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO;
-      return `<tr>
-      <td><strong>${esc(l.termo)}</strong>${susp ? `<span class="chip atraso" title="${l.pct_com_gap}% das vagas com gap x ${l.pct_sem_gap}% das sem gap">derruba a nota?</span>` : ""}</td>
-      <td style="white-space:nowrap"><span class="barra-pct" style="width:${Math.round(120 * l.pct_vagas / max)}px"></span>${l.vagas} (${l.pct_vagas}%)</td>
-      <td class="num">${l.obrigatorio}</td>
-      <td><div class="duas"><span>${l.pct_com_gap}%</span><span><span class="barra-pct gap" style="width:${l.pct_com_gap * 1.5}px"></span></span>
-        <span>${l.pct_sem_gap}%</span><span><span class="barra-pct semgap" style="width:${l.pct_sem_gap * 1.5}px"></span></span></div></td>
-      <td class="cv sub">${l.no_cv ? "…" + esc(l.no_cv) + "…" : `<span style="color:var(--alerta)">não aparece</span>`}</td></tr>`;
-    }).join("")}</tbody></table></div>`;
+  const corpo = linhas.map(l => linhaLacuna(l, max)).join("") ||
+    `<tr><td colspan="5" class="vazio">Nenhum termo neste filtro.</td></tr>`;
+  return explica + resumo + barra + `<div class="rolagem"><table class="tabela"><thead><tr><th>Termo</th><th>Vagas que pedem</th>
+    <th>Aparece em…</th><th>No seu CV</th><th>Sua avaliação</th></tr></thead><tbody>${corpo}</tbody></table></div>`;
+}
+function linhaLacuna(l, max) {
+  const susp = l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO, r = revisao(l.termo);
+  const aberta = lacunaAberta && lacunaAberta.termo === l.termo ? lacunaAberta.modo : "";
+  const avaliacao = r ? `<span class="chip ${r.avaliacao === "tenho" ? "s-oferta" : "s-recusada"}">${r.avaliacao === "tenho" ? "Tenho isso" : "É lacuna"}</span>
+        <button class="discreto" data-acao="lacuna" data-termo="${esc(l.termo)}" data-avaliacao="">Desfazer</button>`
+    : `<button data-acao="abrir-tenho" data-termo="${esc(l.termo)}">Tenho isso</button>
+       <button data-acao="lacuna" data-termo="${esc(l.termo)}" data-avaliacao="lacuna">É lacuna mesmo</button>`;
+  const extra = aberta === "tenho" ? `<tr class="rascunho"><td colspan="5">
+      <div class="sub" style="margin-bottom:6px">Onde ou como você usou <strong>${esc(l.termo)}</strong>? Vai para a lista “Para pôr no CV”.</div>
+      <div class="acoes"><input id="nota-lacuna" style="flex:1;min-width:240px" value="${esc(lacunaAberta.nota || "")}" placeholder="ex.: SQL no BI da TOTVS, queries no GoodData">
+      <button class="primario" data-acao="lacuna" data-termo="${esc(l.termo)}" data-avaliacao="tenho">Salvar</button>
+      <button class="discreto" data-acao="fechar-lacuna">Cancelar</button></div></td></tr>`
+    : aberta === "exemplos" ? `<tr class="rascunho"><td colspan="5">${(l.exemplos || []).map(e => `<div style="margin-bottom:8px">
+        <a href="${esc(e.link)}" target="_blank" rel="noopener"><strong>${esc(e.titulo)}</strong></a> <span class="sub">· ${esc(e.empresa)} · nota ${nota(e.nota_fit)}${e.gap_critico === "sim" ? " · falta requisito" : ""}</span>
+        <div class="sub">${esc(e.trecho)}</div></div>`).join("") || `<span class="sub">Sem exemplos neste relatório.</span>`}
+        <button class="discreto" data-acao="fechar-lacuna">Fechar</button></td></tr>` : "";
+  return `<tr>
+    <td><strong>${esc(l.termo)}</strong>${susp ? `<span class="chip atraso">provável lacuna</span>` : ""}
+      <div><button class="discreto link" style="padding:2px 0" data-acao="exemplos" data-termo="${esc(l.termo)}">${aberta === "exemplos" ? "Esconder vagas" : "Ver vagas"}</button></div></td>
+    <td style="white-space:nowrap"><span class="barra-pct" style="width:${Math.round(100 * l.pct_vagas / max)}px"></span>${l.vagas} (${l.pct_vagas}%)
+      <div class="sub" title="Citado sem “desejável”, “diferencial”, “plus”… por perto">${l.obrigatorio} como obrigatório</div></td>
+    <td><div class="duas"><span>${l.pct_com_gap}%</span><span><span class="barra-pct gap" style="width:${l.pct_com_gap * 1.5}px"></span>onde falta algo</span>
+      <span>${l.pct_sem_gap}%</span><span><span class="barra-pct semgap" style="width:${l.pct_sem_gap * 1.5}px"></span>onde não falta nada</span></div></td>
+    <td class="cv sub">${l.no_cv ? esc(l.no_cv) : `<span style="color:var(--alerta)">não aparece</span>`}</td>
+    <td style="white-space:nowrap">${avaliacao}</td></tr>${extra}`;
 }
 
 // --- Candidaturas ------------------------------------------------------------
@@ -399,7 +441,7 @@ function abaVagas() {
   const busca = f.busca.toLowerCase();
   const lista = dados.vagas.filter(v =>
     (f.rec === "todas" || v.recomendacao === f.rec) &&
-    (!f.esconder || !v.status) &&
+    (!f.esconder || (!v.status && !v.descartada)) &&
     (!f.novas || ehNova(v)) &&
     (!busca || `${v.titulo} ${v.empresa}`.toLowerCase().includes(busca)));
   const novas = lista.filter(ehNova).length;
@@ -410,9 +452,11 @@ function abaVagas() {
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
-    <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder as que já enviei</label>
+    <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder enviadas e descartadas</label>
     <label class="sub"><input type="checkbox" id="novas" ${f.novas ? "checked" : ""}> Só as novas</label>
+    <label class="sub"><input type="checkbox" id="descartadas" ${f.descartadas ? "checked" : ""}> Ver descartadas (${dados.descartes.length})</label>
     <span class="sub">${lista.length} vaga(s)${novas ? ` · ${novas} nova(s)` : ""}</span></div>`;
+  if (f.descartadas) return barra + listaDescartes();
   if (!dados.vagas.length) return barra + `<div class="vazio">As vagas do dia chegam quando o PC roda a coleta diária.</div>`;
   if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
   const linhas = lista.slice(0, f.limite).map(v => `<tr>
@@ -424,12 +468,42 @@ function abaVagas() {
       <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
       <td class="sub">${esc(v.fonte)}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
-      <td class="num">${v.status ? chipStatus(v.status)
-        : `<button class="primario" data-acao="ja-enviei" data-link="${esc(v.link)}">Já enviei</button>`}</td></tr>`).join("");
+      <td class="num" style="white-space:nowrap">${v.status ? chipStatus(v.status)
+        : v.descartada ? `<span class="chip s-encerrada" title="${esc(v.descartada)}">Descartada</span>
+            <button class="discreto" data-acao="desfazer-descarte" data-link="${esc(v.link)}">Desfazer</button>`
+        : `<button class="primario" data-acao="ja-enviei" data-link="${esc(v.link)}">Já enviei</button>
+           <button data-acao="abrir-descarte" data-link="${esc(v.link)}">Descartar</button>`}</td></tr>${
+      descarte && descarte.link === v.link ? linhaDescarte() : ""}`).join("");
   const mais = lista.length > f.limite ? `<div class="barra" style="justify-content:center;margin-top:12px">
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
   return barra + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
     <th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
+}
+
+function linhaDescarte() {
+  return `<tr class="rascunho"><td colspan="6">
+    <div class="sub" style="margin-bottom:6px">Por que descartar? O motivo fica salvo para a gente analisar depois.</div>
+    <div class="acoes">${dados.motivos_descarte.map(m => `<button class="${descarte.motivo === m ? "primario" : ""}"
+      data-acao="motivo" data-motivo="${esc(m)}">${esc(m)}</button>`).join("")}</div>
+    <div class="acoes" style="margin-top:8px"><input id="nota-descarte" style="flex:1;min-width:240px" value="${esc(descarte.nota || "")}" placeholder="Detalhe (opcional)">
+      <button class="primario" data-acao="confirmar-descarte" ${descarte.motivo ? "" : "disabled"}>Descartar</button>
+      <button class="discreto" data-acao="cancelar-descarte">Cancelar</button></div></td></tr>`;
+}
+function listaDescartes() {
+  const ds = [...dados.descartes].sort((a, b) => (b.em || "").localeCompare(a.em || ""));
+  if (!ds.length) return `<div class="vazio">Nenhuma vaga descartada ainda.</div>`;
+  const contas = {};
+  ds.forEach(d => { contas[d.motivo] = (contas[d.motivo] || 0) + 1; });
+  const resumo = `<div class="funil">${Object.entries(contas).sort((a, b) => b[1] - a[1]).map(([m, n]) => `
+    <div class="cartao" style="padding:10px 14px;gap:0;min-width:150px"><span class="qtd" style="font-size:22px;font-weight:700">${n}</span>
+    <span class="sub">${esc(m)}</span></div>`).join("")}</div>`;
+  return resumo + `<div class="rolagem"><table class="tabela"><thead><tr><th>Descartada em</th><th class="num">Nota</th><th>Vaga</th><th>Motivo</th><th>Detalhe</th><th></th></tr></thead><tbody>
+    ${ds.map(d => `<tr><td class="sub">${dataBR(d.em)}</td><td class="num"><span class="nota">${nota(d.nota_fit)}</span></td>
+      <td class="vaga">${/^https?:/.test(d.link) ? `<a href="${esc(d.link)}" target="_blank" rel="noopener">${esc(d.titulo)}</a>` : esc(d.titulo)}
+        <div class="sub">${esc(d.empresa)}</div></td>
+      <td>${esc(d.motivo)}</td><td class="sub">${esc(d.nota)}</td>
+      <td class="num"><button class="discreto" data-acao="desfazer-descarte" data-link="${esc(d.link)}">Desfazer</button></td></tr>`).join("")}
+    </tbody></table></div>`;
 }
 
 // --- ações ---------------------------------------------------------------------
@@ -458,10 +532,30 @@ conteudo.addEventListener("click", async e => {
       return;
     }
     if (acao === "fechar-rascunho") { rascunho = null; desenhar(); return; }
+    if (acao === "abrir-descarte") { descarte = { link: b.dataset.link, motivo: "", nota: "" }; desenhar(); return; }
+    if (acao === "motivo") { descarte.motivo = b.dataset.motivo; desenhar(); return; }
+    if (acao === "cancelar-descarte") { descarte = null; desenhar(); return; }
+    if (acao === "abrir-tenho") { lacunaAberta = { termo: b.dataset.termo, modo: "tenho", nota: "" }; desenhar();
+      document.getElementById("nota-lacuna").focus(); return; }
+    if (acao === "exemplos") {
+      lacunaAberta = lacunaAberta && lacunaAberta.termo === b.dataset.termo && lacunaAberta.modo === "exemplos" ? null
+        : { termo: b.dataset.termo, modo: "exemplos" };
+      desenhar(); return;
+    }
+    if (acao === "fechar-lacuna") { lacunaAberta = null; desenhar(); return; }
     if (acao === "ja-enviei") {
       b.disabled = true;
       await api("/api/candidatura", dados.vagas.find(x => x.link === b.dataset.link));
       aviso("Marcada como enviada — está na aba Candidaturas.");
+    } else if (acao === "confirmar-descarte") {
+      b.disabled = true;
+      await api("/api/descartar", descarte); descarte = null; aviso("Vaga descartada.");
+    } else if (acao === "desfazer-descarte") {
+      await api("/api/desfazer-descarte", { link: b.dataset.link }); aviso("Descarte desfeito.");
+    } else if (acao === "lacuna") {
+      const av = b.dataset.avaliacao;
+      await api("/api/lacuna", { termo: b.dataset.termo, avaliacao: av, nota: av === "tenho" ? (lacunaAberta || {}).nota || "" : "" });
+      lacunaAberta = null; aviso(av === "tenho" ? "Anotado em “Para pôr no CV”." : av ? "Marcada como lacuna." : "Avaliação desfeita.");
     } else if (acao === "followup-enviado") {
       b.disabled = true;
       await api("/api/followup", { id }); rascunho = null; aviso("Follow-up registrado.");
@@ -481,7 +575,8 @@ conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
-  if (el.id === "fora-cv") { filtroLacunas.foraDoCv = el.checked; desenhar(); return; }
+  if (el.id === "filtro-lacunas") { filtroLacunas.ver = el.value; lacunaAberta = null; desenhar(); return; }
+  if (el.id === "descartadas") { filtroVagas.descartadas = el.checked; desenhar(); return; }
   if (el.id === "novas") { filtroVagas.novas = el.checked; filtroVagas.limite = 150; desenhar(); return; }
   try {
     if (el.dataset.acao === "status") { await api("/api/status", { id: el.dataset.id, status: el.value }); aviso("Status atualizado."); }
@@ -493,6 +588,8 @@ conteudo.addEventListener("change", async e => {
 conteudo.addEventListener("input", e => {
   if (formCand && e.target.closest("#form-cand")) { formCand[e.target.name] = e.target.value; return; }
   if (rascunho && e.target.id === "texto-rascunho") { rascunho.texto = e.target.value; return; }
+  if (descarte && e.target.id === "nota-descarte") { descarte.nota = e.target.value; return; }
+  if (lacunaAberta && e.target.id === "nota-lacuna") { lacunaAberta.nota = e.target.value; return; }
   if (e.target.id !== "busca") return;
   filtroVagas.busca = e.target.value; filtroVagas.limite = 150;
   const pos = e.target.selectionStart;

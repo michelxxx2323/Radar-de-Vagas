@@ -9,7 +9,9 @@ Chamado pelo rodar_diario.bat depois da coleta:
 2. sobe o mapa de lacunas do mesmo relatório (lacunas.py), para a aba
    "Lacunas";
 3. baixa as candidaturas registradas no painel para output/candidaturas.json —
-   uma cópia de segurança no PC, caso o banco da nuvem se perca.
+   uma cópia de segurança no PC, caso o banco da nuvem se perca — e, do mesmo
+   jeito, as vagas descartadas (output/descartes.json, com o motivo) e a sua
+   avaliação das lacunas (output/lacunas_revisao.json).
 
 Uso:
     python sincronizar.py
@@ -33,7 +35,7 @@ from novidades import _ler_env
 
 # o que a aba "Vagas de hoje" recebe de cada vaga do relatório
 CAMPOS_LISTA = ["nota_fit", "recomendacao", "titulo", "empresa", "fonte", "cidade", "remoto",
-                "salario", "publicado_em", "idade_dias", "adicionada_em", "alerta", "link"]
+                "salario", "publicado_em", "idade_dias", "adicionada_em", "alerta", "trilha", "link"]
 
 
 class Nuvem:
@@ -114,6 +116,10 @@ def sincronizar(config: dict, nuvem: Nuvem) -> dict:
     copia = out_dir / "candidaturas.json"
     copia.parent.mkdir(parents=True, exist_ok=True)
     copia.write_text(json.dumps(remoto["candidaturas"], ensure_ascii=False, indent=1), encoding="utf-8")
+    for nome in ("descartes", "lacunas_revisao"):
+        if nome in remoto:  # painel antigo, sem essas rotas: não apaga a cópia anterior
+            (out_dir / f"{nome}.json").write_text(json.dumps(remoto[nome], ensure_ascii=False, indent=1),
+                                                  encoding="utf-8")
     return {"vagas": subidas, "candidaturas": len(remoto["candidaturas"])}
 
 

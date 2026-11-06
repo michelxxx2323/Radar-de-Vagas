@@ -6,7 +6,9 @@ Chamado pelo rodar_diario.bat depois da coleta:
 1. sobe as vagas "aplicar agora" e "avaliar" do relatório do dia, para a aba
    "Vagas de hoje" (só quando as vagas mudaram, mesmo que o nome do relatório
    seja o mesmo);
-2. baixa as candidaturas registradas no painel para output/candidaturas.json —
+2. sobe o mapa de lacunas do mesmo relatório (lacunas.py), para a aba
+   "Lacunas";
+3. baixa as candidaturas registradas no painel para output/candidaturas.json —
    uma cópia de segurança no PC, caso o banco da nuvem se perca.
 
 Uso:
@@ -52,11 +54,12 @@ class Nuvem:
     def estado(self) -> dict:
         return self._req("GET", "/api/pc/estado")
 
-    def subir_vagas(self, relatorio: str, vagas: list[dict], assinatura: str) -> None:
-        self._req("PUT", "/api/pc/vagas", json={"relatorio": relatorio, "vagas": vagas, "assinatura": assinatura})
+    def subir_vagas(self, relatorio: str, vagas: list[dict], assinatura: str, lacunas: dict | None = None) -> None:
+        self._req("PUT", "/api/pc/vagas", json={"relatorio": relatorio, "vagas": vagas, "assinatura": assinatura,
+                                                "lacunas": lacunas or {}})
 
 
-def assinatura(vagas: list[dict]) -> str:
+def assinatura(vagas) -> str:
     """Impressão digital do conteúdo das vagas. Comparar só o nome do relatório
     não basta: uma 2ª rodada no mesmo dia regrava vagas_triadas_<data>.csv com
     o mesmo nome (28/10/2026: a rodada da madrugada e a das 11h, e o painel
@@ -80,6 +83,18 @@ def vagas_do_relatorio(out_dir: Path) -> tuple[str, list[dict]]:
     return relatorios[-1].name, vagas
 
 
+def lacunas_do_relatorio(config: dict) -> dict:
+    """Mapa de lacunas (lacunas.py) para a aba "Lacunas" do painel. Sem cv.txt
+    ou sem a coleta, segue sem ele — as vagas do dia sobem do mesmo jeito."""
+    try:
+        import lacunas
+
+        return lacunas.calcular(config)
+    except (Exception, SystemExit) as e:  # noqa: BLE001 — o mapa é extra; a sincronização não pode cair por ele
+        print(f"  [aviso] mapa de lacunas não calculado ({e}); o painel fica com o anterior.", file=sys.stderr)
+        return {}
+
+
 def sincronizar(config: dict, nuvem: Nuvem) -> dict:
     """Uma rodada. Devolve contagens do que fez (para o log)."""
     out_dir = Path(config.get("output_dir", "output"))
@@ -87,9 +102,14 @@ def sincronizar(config: dict, nuvem: Nuvem) -> dict:
 
     relatorio, vagas = vagas_do_relatorio(out_dir)
     subidas = 0
-    if relatorio and assinatura(vagas) != remoto.get("assinatura"):
-        nuvem.subir_vagas(relatorio, vagas, assinatura(vagas))
-        subidas = len(vagas)
+    if relatorio:
+        lacunas = lacunas_do_relatorio(config)
+        # a assinatura cobre as lacunas também: sem isso, a 1ª rodada depois
+        # desta mudança não subiria o mapa (as vagas eram as mesmas)
+        marca = assinatura({"vagas": vagas, "lacunas": lacunas})
+        if marca != remoto.get("assinatura"):
+            nuvem.subir_vagas(relatorio, vagas, marca, lacunas)
+            subidas = len(vagas)
 
     copia = out_dir / "candidaturas.json"
     copia.parent.mkdir(parents=True, exist_ok=True)

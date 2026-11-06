@@ -97,7 +97,9 @@ quatro ideias entraram no radar:
   "avaliar", quais ferramentas e competências aparecem na descrição, separa
   obrigatório de diferencial, compara com o `cv.txt` e mostra o que aparece bem
   mais nas vagas em que o Jev aponta gap. Os termos ficam em `lacunas.py` e
-  podem ser completados pelo bloco `lacunas` do `config.yaml`.
+  podem ser completados pelo bloco `lacunas` do `config.yaml`. O
+  `sincronizar.py` calcula o mesmo mapa a cada rodada e o painel mostra na
+  aba **Lacunas**.
 - **Texto oculto fora da descrição**: antes de qualquer IA ler a vaga, o
   `strip_html` remove o que o navegador não mostra (`display:none`, fonte ou
   opacidade zero, comentários, caracteres invisíveis). Frase dirigida a uma IA
@@ -130,13 +132,15 @@ em `.claude/skills/radar/`) resolve isso sob demanda:
 ## Painel de candidaturas
 
 Achar a vaga é metade do trabalho; a outra é acompanhar onde já me candidatei.
-Um painel na web (pasta `web/`, publicada na Vercel, com senha) tem duas abas:
+Um painel na web (pasta `web/`, publicada na Vercel, com senha) tem três abas:
 
 - **Vagas de hoje**: as vagas "aplicar agora" e "avaliar" do relatório do dia,
   com busca, nota e um botão "Já enviei";
 - **Candidaturas**: o funil enviada → entrevista → oferta / recusada /
   encerrada, com data de envio, dias desde então e anotações. Vagas de fora do
   relatório (LinkedIn, site da empresa) entram por "+ Adicionar candidatura".
+- **Lacunas**: o mapa do `lacunas.py` — o que as vagas boas pedem e o seu CV
+  não mostra.
 
 ```
   PC (rodada diária)                                Vercel

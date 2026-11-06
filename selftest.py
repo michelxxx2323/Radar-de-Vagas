@@ -1250,7 +1250,7 @@ def _montar_saida(out: Path, vagas: list[dict]) -> None:
         for v in vagas:
             w.writerow({k: v[k] for k in w.fieldnames})
     (out / "vagas_coletadas.json").write_text(
-        json.dumps([{"link": v["link"], "descricao": v["descricao"]} for v in vagas]), encoding="utf-8")
+        json.dumps([{k: v[k] for k in ("link", "titulo", "empresa", "descricao")} for v in vagas]), encoding="utf-8")
 
 
 def test_nuvem_e_sincronizar():
@@ -1284,13 +1284,14 @@ def test_nuvem_e_sincronizar():
 
             _montar_saida(out, [
                 {"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
-                 "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": ""},
+                 "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": "Requisitos: SQL e Power BI."},
                 {"recomendacao": "avaliar", "nota_fit": "6.0", "titulo": "Analista de Growth",
                  "empresa": "Beta", "fonte": "gupy", "link": "https://x/2", "descricao": ""},
                 {"recomendacao": "nao_aplicar", "nota_fit": "2.0", "titulo": "Engenheiro Java",
                  "empresa": "Gama", "fonte": "gupy", "link": "https://x/3", "descricao": ""},
             ])
-            config = {"output_dir": str(out)}
+            (out / "cv.txt").write_text("Ferramentas: Excel, SQL (básico)", encoding="utf-8")
+            config = {"output_dir": str(out), "cv_path": str(out / "cv.txt")}
             nuvem = _NuvemTeste()
 
             # sem senha, nada; com o token errado, o PC também não entra
@@ -1304,6 +1305,9 @@ def test_nuvem_e_sincronizar():
             p = navegador.get("/api/painel").get_json()
             assert [v["titulo"] for v in p["vagas"]] == ["Analista de RevOps", "Analista de Growth"]
             assert p["pc_visto_em"] and p["relatorio"] == "vagas_triadas_2026-01-01.csv"
+            # o mapa de lacunas sobe junto, para a aba "Lacunas"
+            assert p["lacunas"]["relatorio"] == "vagas_triadas_2026-01-01.csv" and p["lacunas"]["vagas"] == 1
+            assert {l["termo"]: bool(l["no_cv"]) for l in p["lacunas"]["linhas"]} == {"SQL": True, "Power BI": False}
 
             # "Já enviei" numa vaga do dia e o formulário (vaga de fora do relatório)
             assert navegador.post("/api/candidatura", json={"titulo": "BA"}).status_code == 400

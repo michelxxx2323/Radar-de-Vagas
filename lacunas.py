@@ -11,7 +11,8 @@ Uso:
     python lacunas.py --todas         # todas as vagas pontuadas, não só as boas
     python lacunas.py --trilha revenue_operations
 
-Saída: tabela no terminal + output/lacunas_<data>.csv.
+Saída: tabela no terminal + output/lacunas_<data>.csv. O sincronizar.py
+calcula o mesmo mapa a cada rodada e manda para a aba "Lacunas" do painel.
 
 Colunas:
     vagas        em quantas vagas boas o termo aparece (e % do total)
@@ -20,7 +21,7 @@ Colunas:
     com_gap      % das vagas com gap crítico (segundo o Jev) que citam o termo
     sem_gap      % das vagas sem gap crítico que citam o termo — se com_gap é
                  bem maior, o termo provavelmente é o que derruba a nota
-    no_cv        trecho do cv.txt onde o termo aparece ("" = não aparece)
+    no_cv        o termo como aparece no cv.txt ("" = não aparece)
 
 Os termos ficam em TERMOS abaixo; dá pra trocar ou completar pelo bloco
 `lacunas` do config.yaml (nome: regex, aplicada ao texto em minúsculas e sem
@@ -122,8 +123,12 @@ def carregar_vagas(out_dir: Path, todas: bool = False, trilha: str = "") -> tupl
     return relatorios[-1].name, vagas
 
 
-def _trecho(texto: str, m: re.Match, largura: int = 30) -> str:
-    return re.sub(r"\s+", " ", texto[max(0, m.start() - largura):m.end() + largura]).strip()
+def _trecho(texto: str, m: re.Match, depois: int = 16) -> str:
+    """O termo como aparece no CV e o que vem logo depois ("sql (basico)"),
+    cortado antes de números e separadores — o trecho vai pro painel, e
+    telefone/e-mail do cabeçalho do CV não têm o que fazer lá."""
+    resto = re.split(r"[\d|·;,.\n@]", texto[m.end():m.end() + depois], maxsplit=1)[0]
+    return re.sub(r"\s+", " ", m.group(0) + resto).strip()
 
 
 def mapa(vagas: list[dict], cv_text: str, termos: dict[str, str]) -> list[dict]:
@@ -165,6 +170,22 @@ def mapa(vagas: list[dict], cv_text: str, termos: dict[str, str]) -> list[dict]:
     return linhas
 
 
+def calcular(config: dict, todas: bool = False, trilha: str = "") -> dict:
+    """Mapa de lacunas do relatório mais recente, no formato que o painel
+    recebe (aba "Lacunas"): {relatorio, vagas, com_gap, linhas}."""
+    out_dir = Path(config.get("output_dir", "output"))
+    cv_text = Path(config.get("cv_path", "cv.txt")).read_text(encoding="utf-8")
+    termos = {**TERMOS, **(config.get("lacunas") or {})}
+    relatorio, vagas = carregar_vagas(out_dir, todas, trilha)
+    com_desc = [v for v in vagas if v.get("descricao")]
+    return {
+        "relatorio": relatorio,
+        "vagas": len(com_desc),
+        "com_gap": sum(1 for v in com_desc if v.get("gap_critico") == "sim"),
+        "linhas": mapa(vagas, cv_text, termos),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="config.yaml")
@@ -174,13 +195,8 @@ def main():
 
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
     out_dir = Path(config.get("output_dir", "output"))
-    cv_text = Path(config.get("cv_path", "cv.txt")).read_text(encoding="utf-8")
-    termos = {**TERMOS, **(config.get("lacunas") or {})}
-
-    relatorio, vagas = carregar_vagas(out_dir, args.todas, args.trilha)
-    linhas = mapa(vagas, cv_text, termos)
-    n_desc = sum(1 for v in vagas if v.get("descricao"))
-    n_gap = sum(1 for v in vagas if v.get("descricao") and v.get("gap_critico") == "sim")
+    res = calcular(config, args.todas, args.trilha)
+    relatorio, linhas, n_desc, n_gap = res["relatorio"], res["linhas"], res["vagas"], res["com_gap"]
 
     path = out_dir / f"lacunas_{dt.date.today().isoformat()}.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as f:

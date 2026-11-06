@@ -216,7 +216,7 @@ def criar_app(banco: Banco | None = None) -> Flask:
             vagas.append(v)
         vagas.sort(key=lambda v: v.get("n") or 0)
         return jsonify(vagas=vagas, candidaturas=cands, relatorio=banco.meta("relatorio"),
-                       pc_visto_em=banco.meta("pc_visto_em"))
+                       pc_visto_em=banco.meta("pc_visto_em"), lacunas=json.loads(banco.meta("lacunas") or "{}"))
 
     @app.post("/api/candidatura")
     @navegador
@@ -292,6 +292,8 @@ def criar_app(banco: Banco | None = None) -> Flask:
         banco.substituir_vagas(corpo["vagas"])
         banco.gravar_meta("relatorio", corpo["relatorio"])
         banco.gravar_meta("assinatura", corpo.get("assinatura", ""))
+        if corpo.get("lacunas"):  # vazio = o PC não conseguiu calcular; fica o anterior
+            banco.gravar_meta("lacunas", json.dumps(corpo["lacunas"], ensure_ascii=False))
         return jsonify(ok=True)
 
     @app.errorhandler(400)

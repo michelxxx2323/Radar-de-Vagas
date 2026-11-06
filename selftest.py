@@ -1308,6 +1308,8 @@ def test_nuvem_e_sincronizar():
             # o mapa de lacunas sobe junto, para a aba "Lacunas"
             assert p["lacunas"]["relatorio"] == "vagas_triadas_2026-01-01.csv" and p["lacunas"]["vagas"] == 1
             assert {l["termo"]: bool(l["no_cv"]) for l in p["lacunas"]["linhas"]} == {"SQL": True, "Power BI": False}
+            sql = next(l for l in p["lacunas"]["linhas"] if l["termo"] == "SQL")
+            assert sql["exemplos"][0]["titulo"] == "Analista de RevOps" and "SQL" in sql["exemplos"][0]["trecho"]
 
             # "Já enviei" numa vaga do dia e o formulário (vaga de fora do relatório)
             assert navegador.post("/api/candidatura", json={"titulo": "BA"}).status_code == 400
@@ -1330,6 +1332,30 @@ def test_nuvem_e_sincronizar():
             assert navegador.post("/api/status", json={"id": acme["id"], "status": "entrevista"}).status_code == 200
             assert navegador.post("/api/status", json={"id": acme["id"], "status": "pronta"}).status_code == 400
             assert navegador.post("/api/notas", json={"id": acme["id"], "notas": "falar com a Ana"}).status_code == 200
+            # descartar uma vaga do dia: precisa de motivo; some de "pendentes" e o motivo fica salvo
+            beta = "https://x/2"
+            assert navegador.post("/api/descartar", json={"link": beta, "motivo": "qualquer"}).status_code == 400
+            assert navegador.post("/api/descartar", json={"link": "https://nao/existe",
+                                                          "motivo": "Salário baixo"}).status_code == 404
+            assert navegador.post("/api/descartar", json={"link": beta, "motivo": "Vendas / meta individual",
+                                                          "nota": "é SDR"}).status_code == 200
+            p = navegador.get("/api/painel").get_json()
+            assert next(v for v in p["vagas"] if v["link"] == beta)["descartada"] == "Vendas / meta individual"
+            assert [(d["titulo"], d["motivo"], d["nota"]) for d in p["descartes"]] == \
+                [("Analista de Growth", "Vendas / meta individual", "é SDR")]
+            assert "Salário baixo" in p["motivos_descarte"]
+
+            # avaliação das lacunas: "tenho" com nota, "lacuna", desfazer
+            assert navegador.post("/api/lacuna", json={"termo": "SQL", "avaliacao": "talvez"}).status_code == 400
+            assert navegador.post("/api/lacuna", json={"termo": "SQL", "avaliacao": "tenho",
+                                                       "nota": "queries no BI da TOTVS"}).status_code == 200
+            assert navegador.post("/api/lacuna", json={"termo": "Power BI", "avaliacao": "lacuna"}).status_code == 200
+            assert navegador.post("/api/lacuna", json={"termo": "Python", "avaliacao": "lacuna"}).status_code == 200
+            assert navegador.post("/api/lacuna", json={"termo": "Python", "avaliacao": ""}).status_code == 200
+            rev = navegador.get("/api/painel").get_json()["lacunas_revisao"]
+            assert {t: r["avaliacao"] for t, r in rev.items()} == {"SQL": "tenho", "Power BI": "lacuna"}
+            assert rev["SQL"]["nota"] == "queries no BI da TOTVS"
+
             # follow-up: só em "enviada", no máximo dois
             assert navegador.post("/api/followup", json={"id": acme["id"]}).status_code == 400  # em entrevista
             assert navegador.post("/api/followup", json={"id": manual["id"]}).status_code == 200
@@ -1346,6 +1372,13 @@ def test_nuvem_e_sincronizar():
             copia = json.loads((out / "candidaturas.json").read_text(encoding="utf-8"))
             assert len(copia) == 1 and copia[0]["status"] == "entrevista" and copia[0]["notas"] == "falar com a Ana"
             assert [h["status"] for h in copia[0]["historico"]] == ["enviada", "entrevista"]
+            # descartes e avaliação das lacunas também ganham cópia no PC
+            assert json.loads((out / "descartes.json").read_text(encoding="utf-8"))[0]["motivo"] == \
+                "Vendas / meta individual"
+            assert json.loads((out / "lacunas_revisao.json").read_text(encoding="utf-8"))["SQL"]["avaliacao"] == "tenho"
+            # desfazer o descarte
+            assert navegador.post("/api/desfazer-descarte", json={"link": beta}).status_code == 200
+            assert navegador.get("/api/painel").get_json()["descartes"] == []
 
             # 2ª rodada no mesmo dia: o relatório tem o mesmo nome, mas as vagas mudaram
             _montar_saida(out, [

@@ -31,6 +31,21 @@ from flask import Flask, abort, jsonify, request, send_file, session
 
 PAGINA = Path(__file__).resolve().parent.parent / "index.html"
 STATUS = ["enviada", "entrevista", "oferta", "recusada", "encerrada"]
+# "Descartar" na aba Vagas de hoje (pedido do Michel, 06/11/2026): o motivo
+# fica salvo pra análise depois (o sincronizar.py copia pra output/descartes.json)
+MOTIVOS_DESCARTE = [
+    "Vendas / meta individual",
+    "Senioridade não bate",
+    "Fora da minha área",
+    "Presencial / local ruim",
+    "Salário baixo",
+    "Falta requisito importante",
+    "Empresa não me interessa",
+    "Vaga antiga ou fechada",
+    "Outro",
+]
+# avaliação de cada termo da aba Lacunas: "tenho" (vai pra lista do CV) ou "lacuna"
+AVALIACOES_LACUNA = ["tenho", "lacuna"]
 CAMPOS_VAGA = ["titulo", "empresa", "link", "fonte", "nota_fit", "recomendacao", "cidade", "estado",
                "remoto", "salario", "publicado_em"]
 
@@ -39,6 +54,7 @@ CREATE TABLE IF NOT EXISTS candidaturas (link TEXT PRIMARY KEY, id TEXT UNIQUE N
     dados TEXT NOT NULL, atualizado_em TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vagas (link TEXT PRIMARY KEY, dados TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (chave TEXT PRIMARY KEY, valor TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS descartes (link TEXT PRIMARY KEY, dados TEXT NOT NULL);
 """
 
 
@@ -136,6 +152,12 @@ class Banco:
             (e["link"], e["id"], json.dumps(e, ensure_ascii=False), e["atualizado_em"]))
         return e
 
+    def descartes(self) -> list[dict]:
+        return [json.loads(d) for (d,) in self.executar("SELECT dados FROM descartes", todos=True)]
+
+    def meta_json(self, chave: str) -> dict:
+        return json.loads(self.meta(chave) or "{}")
+
     def meta(self, chave: str) -> str:
         linha = self.executar("SELECT valor FROM meta WHERE chave = %s", (chave,), um=True)
         return linha[0] if linha else ""
@@ -209,14 +231,19 @@ def criar_app(banco: Banco | None = None) -> Flask:
     def painel():
         cands = banco.candidaturas()
         status = {c["link"]: c.get("status", "") for c in cands}
+        descartes = banco.descartes()
+        descartada = {d["link"]: d.get("motivo", "") for d in descartes}
         vagas = []
         for (d,) in banco.executar("SELECT dados FROM vagas", todos=True):
             v = json.loads(d)
             v["status"] = status.get(v["link"], "")
+            v["descartada"] = descartada.get(v["link"], "")
             vagas.append(v)
         vagas.sort(key=lambda v: v.get("n") or 0)
         return jsonify(vagas=vagas, candidaturas=cands, relatorio=banco.meta("relatorio"),
-                       pc_visto_em=banco.meta("pc_visto_em"), lacunas=json.loads(banco.meta("lacunas") or "{}"))
+                       pc_visto_em=banco.meta("pc_visto_em"), lacunas=banco.meta_json("lacunas"),
+                       lacunas_revisao=banco.meta_json("lacunas_revisao"), descartes=descartes,
+                       motivos_descarte=MOTIVOS_DESCARTE)
 
     @app.post("/api/candidatura")
     @navegador
@@ -269,6 +296,50 @@ def criar_app(banco: Banco | None = None) -> Flask:
         banco.mudar(e, followups=[*(e.get("followups") or []), _hoje()])
         return jsonify(ok=True)
 
+    @app.post("/api/descartar")
+    @navegador
+    def descartar():
+        """Vaga do dia descartada, com o motivo. Guarda uma cópia dos dados da
+        vaga, porque a lista de vagas do dia é trocada a cada rodada."""
+        d = request.json or {}
+        link, motivo = (d.get("link") or "").strip(), (d.get("motivo") or "").strip()
+        if motivo not in MOTIVOS_DESCARTE:
+            abort(400, "Escolha um motivo.")
+        linha = banco.executar("SELECT dados FROM vagas WHERE link = %s", (link,), um=True)
+        if not linha:
+            abort(404, "Vaga não encontrada na lista de hoje.")
+        v = json.loads(linha[0])
+        reg = {k: v.get(k, "") for k in ["link", "titulo", "empresa", "fonte", "nota_fit", "recomendacao",
+                                           "trilha", "cidade", "remoto", "salario", "publicado_em"]}
+        reg.update(motivo=motivo, nota=(d.get("nota") or "").strip()[:500], em=_agora())
+        banco.executar("INSERT INTO descartes (link, dados) VALUES (%s, %s) "
+                       "ON CONFLICT (link) DO UPDATE SET dados = excluded.dados",
+                       (link, json.dumps(reg, ensure_ascii=False)))
+        return jsonify(ok=True)
+
+    @app.post("/api/desfazer-descarte")
+    @navegador
+    def desfazer_descarte():
+        banco.executar("DELETE FROM descartes WHERE link = %s", ((request.json or {}).get("link", ""),))
+        return jsonify(ok=True)
+
+    @app.post("/api/lacuna")
+    @navegador
+    def avaliar_lacuna():
+        """Sua avaliação de um termo da aba Lacunas: "tenho" (com uma nota de
+        onde usou, pra ir pro CV), "lacuna" (é lacuna mesmo) ou "" (desfaz)."""
+        d = request.json or {}
+        termo, avaliacao = (d.get("termo") or "").strip(), d.get("avaliacao") or ""
+        if not termo or avaliacao not in ["", *AVALIACOES_LACUNA]:
+            abort(400, "Avaliação inválida.")
+        rev = banco.meta_json("lacunas_revisao")
+        if avaliacao:
+            rev[termo] = {"avaliacao": avaliacao, "nota": (d.get("nota") or "").strip()[:500], "em": _agora()}
+        else:
+            rev.pop(termo, None)
+        banco.gravar_meta("lacunas_revisao", json.dumps(rev, ensure_ascii=False))
+        return jsonify(ok=True)
+
     @app.post("/api/excluir")
     @navegador
     def excluir():
@@ -283,7 +354,8 @@ def criar_app(banco: Banco | None = None) -> Flask:
     def pc_estado():
         banco.gravar_meta("pc_visto_em", _agora())
         return jsonify(candidaturas=banco.candidaturas(), relatorio=banco.meta("relatorio"),
-                       assinatura=banco.meta("assinatura"))
+                       assinatura=banco.meta("assinatura"), descartes=banco.descartes(),
+                       lacunas_revisao=banco.meta_json("lacunas_revisao"))
 
     @app.put("/api/pc/vagas")
     @pc

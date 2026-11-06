@@ -97,6 +97,12 @@
   .chip.atraso { background: var(--surface-2); color: var(--atraso); font-weight: 600; margin-left: 6px; }
   .chip.alerta { background: var(--recusada-bg); color: var(--alerta); font-weight: 600; margin-left: 6px; cursor: help; }
   .rascunho td { background: var(--surface-2); }
+  .barra-pct { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 8px; }
+  .barra-pct.gap { background: var(--atraso); }
+  .barra-pct.semgap { background: var(--muted); opacity: .6; }
+  .duas { display: grid; grid-template-columns: 44px 1fr; gap: 2px 6px; align-items: center; font-size: 12px; min-width: 190px; }
+  .tabela td.cv { max-width: 320px; }
+  .resumo-lacunas { margin: 0 0 14px; max-width: 880px; }
   .rascunho textarea { width: 100%; min-height: 130px; font: inherit; color: var(--text); background: var(--surface);
                        border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; resize: vertical; }
   .rascunho .acoes { margin-top: 8px; align-items: center; }
@@ -130,9 +136,13 @@
 
 <script>
 const STATUS = { enviada: "Enviada", entrevista: "Entrevista", oferta: "Oferta", recusada: "Recusada", encerrada: "Encerrada" };
-const ABAS = [{ id: "candidaturas", rotulo: "Candidaturas" }, { id: "vagas", rotulo: "Vagas de hoje" }];
+const ABAS = [{ id: "candidaturas", rotulo: "Candidaturas" }, { id: "vagas", rotulo: "Vagas de hoje" },
+              { id: "lacunas", rotulo: "Lacunas" }];
 
-let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "" };
+let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "", lacunas: {} };
+let filtroLacunas = { foraDoCv: false };
+// termo bem mais citado nas vagas com gap crítico do que nas sem (mesmo corte do lacunas.py)
+const DIF_SUSPEITO = 8;
 // #vagas ou #candidaturas no endereço escolhe a aba
 const hash = location.hash.slice(1);
 let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
@@ -271,6 +281,7 @@ function desenharAbas() {
   const contas = {
     candidaturas: cand(["enviada", "entrevista", "oferta"]).length,
     vagas: dados.vagas.filter(v => v.recomendacao === "aplicar_agora" && !v.status).length,
+    lacunas: suspeitosLacunas().filter(l => !l.no_cv).length,
   };
   document.getElementById("abas").innerHTML = ABAS.map(a => `
     <button class="${a.id === aba ? "ativa" : ""}" data-aba="${a.id}">${a.rotulo}
@@ -282,7 +293,39 @@ document.getElementById("abas").addEventListener("click", e => {
 });
 
 function desenhar() {
-  document.getElementById("conteudo").innerHTML = aba === "vagas" ? abaVagas() : abaCandidaturas();
+  document.getElementById("conteudo").innerHTML = aba === "vagas" ? abaVagas() : aba === "lacunas" ? abaLacunas() : abaCandidaturas();
+}
+
+// --- Lacunas (lacunas.py, calculado pelo PC a cada rodada) -----------------------
+function suspeitosLacunas() {
+  return ((dados.lacunas || {}).linhas || []).filter(l => l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO);
+}
+function abaLacunas() {
+  const L = dados.lacunas || {};
+  if (!(L.linhas || []).length) return `<div class="vazio">O mapa de lacunas chega na próxima vez que o PC rodar a coleta e o sincronizar.py.</div>`;
+  const suspeitos = suspeitosLacunas();
+  const destaque = suspeitos.length ? `<p class="sub">Mais citados quando o Jev aponta requisito obrigatório não atendido:
+      ${suspeitos.map(l => `<strong>${esc(l.termo)}</strong> (${l.pct_com_gap}% x ${l.pct_sem_gap}%${l.no_cv ? "" : ", fora do CV"})`).join(" · ")}</p>` : "";
+  const resumo = `<div class="resumo-lacunas"><p class="sub">O que as ${L.vagas} vagas “aplicar agora” e “avaliar” do relatório de
+      ${dataBR((L.relatorio || "").replace("vagas_triadas_", "").replace(".csv", ""))} pedem, comparado com o seu CV.
+      ${L.com_gap} delas têm requisito obrigatório não atendido segundo o Jev. “Com gap” e “sem gap” mostram em que % de cada grupo o termo aparece:
+      quando “com gap” é bem maior, o termo provavelmente é o que derruba a nota.</p>${destaque}</div>`;
+  const barra = `<div class="barra"><label class="sub"><input type="checkbox" id="fora-cv" ${filtroLacunas.foraDoCv ? "checked" : ""}>
+      Só o que não está no CV</label></div>`;
+  const linhas = L.linhas.filter(l => !filtroLacunas.foraDoCv || !l.no_cv);
+  const max = Math.max(...L.linhas.map(l => l.pct_vagas), 1);
+  return resumo + barra + `<div class="rolagem"><table class="tabela"><thead><tr><th>Termo</th><th>Vagas que citam</th>
+    <th class="num" title="Citado sem “desejável”, “diferencial”, “plus”… por perto">Obrigatório</th><th>Com gap x sem gap</th><th>No seu CV</th></tr></thead><tbody>
+    ${linhas.map(l => {
+      const susp = l.pct_com_gap - l.pct_sem_gap >= DIF_SUSPEITO;
+      return `<tr>
+      <td><strong>${esc(l.termo)}</strong>${susp ? `<span class="chip atraso" title="${l.pct_com_gap}% das vagas com gap x ${l.pct_sem_gap}% das sem gap">derruba a nota?</span>` : ""}</td>
+      <td style="white-space:nowrap"><span class="barra-pct" style="width:${Math.round(120 * l.pct_vagas / max)}px"></span>${l.vagas} (${l.pct_vagas}%)</td>
+      <td class="num">${l.obrigatorio}</td>
+      <td><div class="duas"><span>${l.pct_com_gap}%</span><span><span class="barra-pct gap" style="width:${l.pct_com_gap * 1.5}px"></span></span>
+        <span>${l.pct_sem_gap}%</span><span><span class="barra-pct semgap" style="width:${l.pct_sem_gap * 1.5}px"></span></span></div></td>
+      <td class="cv sub">${l.no_cv ? "…" + esc(l.no_cv) + "…" : `<span style="color:var(--alerta)">não aparece</span>`}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
 }
 
 // --- Candidaturas ------------------------------------------------------------
@@ -438,6 +481,7 @@ conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
+  if (el.id === "fora-cv") { filtroLacunas.foraDoCv = el.checked; desenhar(); return; }
   if (el.id === "novas") { filtroVagas.novas = el.checked; filtroVagas.limite = 150; desenhar(); return; }
   try {
     if (el.dataset.acao === "status") { await api("/api/status", { id: el.dataset.id, status: el.value }); aviso("Status atualizado."); }

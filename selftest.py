@@ -829,6 +829,14 @@ def test_lacunas():
         assert "Python" not in linhas
         _, todas = lacunas.carregar_vagas(out, todas=True)
         assert len(todas) == 3
+        # o que você marcou "Tenho isso" no painel deixa de ser provável lacuna
+        assert lacunas.carregar_revisao(out) == {}
+        assert [r["termo"] for r in lacunas.suspeitos(list(linhas.values()), {})] == ["SQL"]
+        (out / "lacunas_revisao.json").write_text(json.dumps(
+            {"SQL": {"avaliacao": "tenho", "nota": "BI da TOTVS"}}), encoding="utf-8")
+        rev = lacunas.carregar_revisao(out)
+        assert lacunas.suspeitos(list(linhas.values()), rev) == []
+        assert lacunas.suspeitos(list(linhas.values()), {"SQL": {"avaliacao": "lacuna"}})[0]["termo"] == "SQL"
     print("OK  test_lacunas")
 
 

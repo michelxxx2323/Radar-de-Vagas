@@ -264,5 +264,6 @@ config.yaml            # termos, filtros, fontes e empresas
 ## Rodar todo dia e receber aviso das vagas novas
 
 1. Clique duas vezes em `instalar_agendamento.bat`. Ele cria a tarefa "Radar de Vagas" no Agendador de Tarefas do Windows, todo dia às 07:00 (outro horário: `instalar_agendamento.bat 08:30`). Se o PC estiver desligado nessa hora, roda quando ligar.
-2. Cada rodada salva o log em `output/run_diario.log` e, além do relatório completo, um `output/novas_<data>.csv` só com as vagas que nunca tinham aparecido antes (nota >= 7.5, "aplicar_agora" ou "avaliar"; ajustável no bloco `avisos` do `config.yaml`).
-3. Aviso no celular (opcional): instale o app ntfy, assine um tópico com nome difícil de adivinhar e coloque esse nome em `NTFY_TOPIC` no `.env` (ou `setx NTFY_TOPIC nome-do-topico`). Detalhes em `novidades.py`.
+2. Antes de cada rodada, a tarefa faz `git pull` (em `rodar_oculto.vbs`), então o código novo que subir pro GitHub entra sozinho no dia seguinte. Se a pasta tiver mudança local que não está no GitHub, o pull só falha (aparece no log) e a rodada segue com o código que está lá.
+3. Cada rodada salva o log em `output/run_diario.log` e, além do relatório completo, um `output/novas_<data>.csv` só com as vagas que nunca tinham aparecido antes (nota >= 7.5, "aplicar_agora" ou "avaliar"; ajustável no bloco `avisos` do `config.yaml`).
+4. Aviso no celular (opcional): instale o app ntfy, assine um tópico com nome difícil de adivinhar e coloque esse nome em `NTFY_TOPIC` no `.env` (ou `setx NTFY_TOPIC nome-do-topico`). Detalhes em `novidades.py`.

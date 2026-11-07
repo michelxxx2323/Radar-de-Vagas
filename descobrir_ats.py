@@ -36,6 +36,10 @@ PELA_URL = [
     (r"lever\.co", "Lever", "sources.lever.boards"),
     (r"ashbyhq\.com", "Ashby", "sources.ashby.boards"),
     (r"smartrecruiters\.com", "SmartRecruiters", "sources.smartrecruiters.empresas"),
+    (r"\.recruitee\.com", "Recruitee", "sources.recruitee.empresas (id = subdomínio)"),
+    (r"\.jobs\.personio\.(de|com)", "Personio", "sources.personio.empresas (id = subdomínio)"),
+    (r"\.breezy\.hr", "Breezy HR", "sources.breezy.empresas (id = subdomínio)"),
+    (r"\.pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas (id = subdomínio)"),
 ]
 # marcas de cada ATS no HTML, pra sites em domínio próprio da empresa
 PELO_HTML = [
@@ -47,6 +51,10 @@ PELO_HTML = [
     (r"lever\.co", "Lever", "sources.lever.boards"),
     (r"ashbyhq", "Ashby", "sources.ashby.boards"),
     (r"smartrecruiters", "SmartRecruiters", "sources.smartrecruiters.empresas"),
+    (r"recruitee\.com", "Recruitee", "sources.recruitee.empresas"),
+    (r"jobs\.personio\.", "Personio", "sources.personio.empresas"),
+    (r"breezy\.hr", "Breezy HR", "sources.breezy.empresas"),
+    (r"pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas"),
     (r"eightfold", "Eightfold (não suportado)", "-"),
     (r"successfactors|sapsf", "SAP SuccessFactors (não suportado)", "-"),
     (r"recrut\.ai", "Recrut.ai (não suportado)", "-"),
@@ -85,6 +93,15 @@ def _probe(nome: str) -> tuple[str, list[str]]:
          lambda r: r.json().get("totalFound")),
         ("teamtailor", f"https://{nome}.teamtailor.com/jobs.rss",
          lambda r: r.text.count("<item>") if "<rss" in r.text else None),
+        # ATSs de agências/PMEs (07/11/2026, fontes-vagas.md)
+        ("recruitee", f"https://{nome}.recruitee.com/api/offers/",
+         lambda r: len(r.json().get("offers", []))),
+        ("personio", f"https://{nome}.jobs.personio.de/xml",
+         lambda r: r.text.count("<position>") if "workzag-jobs" in r.text else None),
+        ("breezy", f"https://{nome}.breezy.hr/json",
+         lambda r: len(r.json()) if isinstance(r.json(), list) else None),
+        ("pinpoint", f"https://{nome}.pinpointhq.com/postings.json",
+         lambda r: len(r.json().get("data", []))),
     ]
     for ats, url, contar in testes:
         try:

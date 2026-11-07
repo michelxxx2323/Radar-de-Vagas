@@ -58,15 +58,19 @@ def _aceita_brasil(j: dict) -> bool:
     return aceita_brasil(local, strip_html(texto))
 
 
-def _get(params: dict, tentativas: int = 4):
-    """GET com espera quando o portal responde 429 (muitas buscas seguidas)."""
-    espera = 5
+def _get(params: dict, tentativas: int = 6):
+    """GET com espera quando o portal responde 429 (muitas buscas seguidas).
+    Respeita o Retry-After; sem ele, espera 15 s, 30 s, 60 s... (07/11/2026:
+    com 5/10/20 s e uma busca por vez, 24 das 26 buscas do Perfil 2 ainda
+    terminavam em 429)."""
+    espera = 15
     for i in range(tentativas):
         resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
         if resp.status_code != 429 or i == tentativas - 1:
             return resp
-        time.sleep(espera)
-        espera *= 2
+        pedido = str((getattr(resp, "headers", None) or {}).get("Retry-After", "")).strip()
+        time.sleep(int(pedido) if pedido.isdigit() else espera)
+        espera = min(espera * 2, 120)
     return resp
 
 
@@ -98,5 +102,5 @@ def fetch_workable(term: str, location: str = "Brazil", limit: int = 60, term_fi
         token = payload.get("nextPageToken") or ""
         if not token or not payload.get("jobs"):
             break
-        time.sleep(0.5)  # portal público — sem martelar
+        time.sleep(2)  # portal público — sem martelar (0,5 s levava a 429)
     return jobs[:limit]

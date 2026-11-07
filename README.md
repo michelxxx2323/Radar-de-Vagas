@@ -183,8 +183,10 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   `output/vagas_coletadas_intl.json`, `output/vagas_intl_<data>.csv/.xlsx` e
   `output/novas_intl_<data>.csv`. A nota de um perfil nunca aparece no outro.
 - **Fontes:** Remotive, We Work Remotely (5 categorias), Remote OK, Remote.io,
-  Himalayas, Jobicy, Working Nomads, Workable no mundo todo (só remotas que
-  aceitam Brasil) e boards de empresas estrangeiras. Gupy, InHire, Shopee,
+  Himalayas, Jobicy, GTM Daily (vagas curadas de GTM engineering/RevOps),
+  Workable no mundo todo (só remotas que aceitam Brasil) e boards de empresas
+  estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio,
+  Breezy HR e Pinpoint; `descobrir_ats.py` já testa os quatro). Gupy, InHire, Shopee,
   TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
 - **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,
   elegibilidade para o Brasil 20% e ausência de gap 15%, mais inglês exigido,

@@ -1,0 +1,283 @@
+# Perfil 2 do radar: vagas remotas pagas em dólar/euro em agências e empresas
+# pequenas e médias do exterior (prompt-perfil-2-radar.md, 07/11/2026).
+#
+#   python screen.py --config config_intl.yaml          # rodada real
+#   python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
+#
+# O Perfil 1 (config.yaml) continua sendo o da tarefa agendada das 07:00.
+# Este perfil tem histórico, coleta e relatório próprios:
+#   output/historico_intl.json, output/vagas_coletadas_intl.json,
+#   output/vagas_intl_<data>.csv/.xlsx, output/novas_intl_<data>.csv
+#
+# Regra de ouro: é ferramenta de sourcing (10 a 15 vagas por semana para
+# abordagem direta), não lista para aplicar em massa. Não baixe o min_score
+# para "ver tudo".
+
+perfil: "intl"
+
+# CV em inglês (fora do git). Enquanto o CV em inglês não existir, é uma
+# tradução do cv.txt marcada no topo com "# TEMPORÁRIO".
+cv_path: "cv_intl.txt"
+
+# Preferências do Perfil 2 (fora do git). Sem este arquivo, vale o bloco
+# `preferencias` abaixo — nunca o preferencias.txt do Perfil 1.
+preferencias_path: "preferencias_intl.txt"
+
+search_terms:
+  - "marketplace operations"
+  - "ecommerce operations"
+  - "e-commerce operations"
+  - "ecommerce manager"
+  - "marketplace manager"
+  - "seller success"
+  - "seller operations"
+  - "seller growth"
+  - "category manager"
+  - "dtc operations"
+  - "partner operations"
+  - "partner success"
+  - "business operations"
+  - "revenue operations"
+  - "revops"
+  - "sales operations"
+  - "gtm operations"
+  - "go-to-market engineer"
+  - "gtm engineer"
+  - "growth operations"
+  - "growth engineer"
+  - "marketing operations"
+  - "automation specialist"
+  - "ai automation"
+  - "outbound operations"
+  - "clay"
+
+# Exemplo (o que vale é o preferencias_intl.txt, se existir).
+preferencias: |
+  QUERO: vagas remotas em agências e empresas pequenas/médias no exterior, em
+  inglês, pagas em dólar ou euro. Frentes: e-commerce e marketplace operations,
+  GTM/RevOps e sales operations, growth operations, e AI automation aplicada a
+  vendas. Prefiro cargos de execução sênior (especialista sênior, coordenador sem
+  time, IC sênior) com escopo de dono, não de apoio. Contractor/PJ é aceitável.
+
+  NÃO QUERO: cargos que exigem gestão de pessoas; cargos que exigem inglês nativo
+  ou quase nativo; cargos que exigem espanhol; vagas presenciais ou híbridas fora
+  do Brasil; vagas restritas a residentes dos EUA/UE; vendas com meta individual
+  (SDR/BDR, account executive com cota); cargos cujo núcleo é SQL/Python avançado
+  ou engenharia de software; consultoria de gestão; banco e serviços financeiros;
+  estágio.
+
+  SENIORIDADE: vaga paga em dólar não tem problema de senioridade — júnior,
+  associate, entry-level, pleno, sênior, especialista e coordenador sem time são
+  compatíveis. Só é incompatível quando a própria vaga exige algo que eu não
+  tenho: gestão de pessoas, cargo executivo (Head/VP/Director) ou muitos anos
+  numa função específica que eu nunca exerci.
+
+  GEOGRAFIA: só vagas remotas que aceitem Brasil/LATAM/qualquer lugar. Qualquer
+  vaga "US only", "EU only", "must be authorized to work in the US" ou
+  presencial/híbrida fora do Brasil é descarte. Presencial/híbrida no Brasil
+  (ex.: São Paulo) só vale se a empresa for estrangeira ou pagar em dólar.
+
+  IDIOMA: aceito JD em inglês. Inglês nativo exigido é lacuna; inglês
+  intermediário ou avançado está ok.
+
+  REQUISITOS TÉCNICOS: Clay, Apollo, Smartlead, HubSpot, n8n e similares são
+  aprendíveis e não são gap crítico. SQL avançado, Python avançado, Salesforce
+  admin e espanhol são gap crítico.
+
+title_keywords:
+  - "operations"
+  - "ecommerce"
+  - "e-commerce"
+  - "commerce"
+  - "marketplace"
+  - "seller"
+  - "vendor"
+  - "category"
+  - "merchant"
+  - "gtm"
+  - "go-to-market"
+  - "go to market"
+  - "growth"
+  - "revenue"
+  - "revops"
+  - "sales ops"
+  - "business ops"
+  - "automation"
+  - "clay"
+  - "n8n"
+  - "outbound"
+  - "partner"
+  - "account"
+  - "dtc"
+  - "d2c"
+  - "retail"
+  - "amazon"
+  - "shopify"
+  - "customer success"
+  - "strategy"
+  - "planning"
+
+# NÃO exclua "engineer" sozinho: o cargo-alvo é "GTM Engineer" e "Growth Engineer".
+title_exclude:
+  - "software engineer"
+  - "data engineer"
+  - "mechanical engineer"
+  - "devops"
+  - "full stack"
+  - "fullstack"
+  - "frontend"
+  - "front-end"
+  - "backend"
+  - "back-end"
+  - "intern"
+  - "internship"
+  - "apprentice"
+  - "sdr"
+  - "bdr"
+  - "sales development representative"
+  - "business development representative"
+  - "appointment setter"
+  - "cold caller"
+  - "commission only"
+  - "unpaid"
+  - "volunteer"
+  - "account executive"
+  - "sales representative"
+  - "customer support"
+  - "help desk"
+  - "recruiter"
+  - "talent acquisition"
+  - "finance manager"
+  - "accountant"
+  - "lawyer"
+  - "salesforce developer"
+
+sources:
+  # --- boards de vagas remotas internacionais ---
+  remotive:
+    enabled: true
+    category: ""
+    limit_per_term: 100      # o geral (15) cortava quase tudo
+
+  weworkremotely:
+    enabled: true
+    # cada feed é lido uma vez e passa pelo filtro de título
+    categories:
+      - "remote-sales-and-marketing-jobs"
+      - "remote-management-and-finance-jobs"
+      - "remote-product-jobs"
+      - "remote-customer-support-jobs"
+      - "all-other-remote-jobs"
+
+  remoteok:
+    enabled: true
+    tags: ["sales", "marketing", "operations", "business", "strategy", "ecommerce",
+           "growth", "account manager", "customer success", "automation"]
+
+  remoteio:
+    enabled: true
+    areas: ["operations", "sales-partnerships", "business-development", "marketing",
+            "product", "other"]
+    max_novas_por_rodada: 300
+
+  himalayas:
+    enabled: true
+    country: "Brazil"        # busca só o que aceita candidato no Brasil
+    max_pages: 3             # por termo de busca
+
+  jobicy:
+    enabled: true
+    geos: ["latam", "brazil", "anywhere"]
+
+  # 07/11/2026: o feed tem ~17 vagas, quase todas de dev/QA/ESL; nenhuma passou
+  # no filtro de título. Desligado para não gerar aviso de fonte vazia.
+  workingnomads:
+    enabled: false
+
+  # Workable: busca no mundo todo e fica com as remotas que aceitam Brasil
+  workable:
+    enabled: true
+    location: ""
+    remoto_global: true
+    limit_per_term: 60
+
+  # --- boards de empresa (ATS) ---
+  # Só empresas estrangeiras, e só boards confirmados pelo descobrir_ats.py.
+  # Os alvos de gtm-engineering.md e alvos-40.md entram depois de rodar o
+  # descobrir_ats.py no PC (sem inventar token).
+  greenhouse:
+    enabled: true
+    boards:
+      - "figma"              # já confirmado no config.yaml
+      - "stackblitz"         # já confirmado no config.yaml
+      - "arenaim"            # já confirmado no config.yaml
+      - "ebury"              # já confirmado no config.yaml
+
+  lever:
+    enabled: true
+    boards:
+      - "loadsmart"          # já confirmado no config.yaml
+      - "tryjeeves"          # já confirmado no config.yaml
+
+  ashby:
+    enabled: true
+    boards:
+      - "darkroom"           # já confirmado no config.yaml
+      - "docplanner"         # já confirmado no config.yaml
+      - "connectly"          # já confirmado no config.yaml
+      - "oyster"             # já confirmado no config.yaml
+      - "belvo"              # já confirmado no config.yaml
+
+  teamtailor:
+    enabled: false
+    sites: []
+
+  smartrecruiters:
+    enabled: false
+    empresas: []
+
+  # --- desligadas: empresas brasileiras/grandes corporações (é o Perfil 1) ---
+  gupy:
+    enabled: false
+  inhire:
+    enabled: false
+  shopee:
+    enabled: false
+  tiktok:
+    enabled: false
+  didi:
+    enabled: false
+  amazon:
+    enabled: false
+  workday:
+    enabled: false
+  bebee:
+    enabled: false
+  mercadolivre:
+    enabled: false
+
+# vaga presencial/híbrida fora do Brasil sai antes do Jev
+descartar_fora_do_brasil: true
+
+# o mesmo anúncio repetido com códigos diferentes no título ("(BBS936)",
+# "[Job-31508]") conta uma vez só
+dedup_ignora_codigos: true
+
+# presencial/híbrida no Brasil só fica se pagar em dólar ou vier de uma destas
+# fontes (aqui só têm empresa estrangeira)
+somente_remoto: true
+fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters"]
+
+limit_per_term: 15
+jev_model: "jev-latest"
+jev_workers: 100
+collect_workers: 16
+
+# O valor do Perfil 2 é o filtro: não baixe para "ver tudo"
+min_score: 7.0
+
+avisos:
+  nota_minima: 7.5
+  recomendacoes: [aplicar_agora, avaliar]
+
+output_dir: "output"

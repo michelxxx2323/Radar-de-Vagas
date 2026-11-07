@@ -166,6 +166,39 @@ regras (`regras-cv.md`, fora do git).
 > git). Saiu por custo: ~US$ 0,26 por vaga, para um trabalho que o Claude já
 > faz na assinatura.
 
+## Perfil 2: vagas internacionais em dólar (07/11/2026)
+
+Um segundo perfil de triagem, separado do primeiro, para vagas remotas pagas em
+dólar/euro em agências e empresas pequenas e médias do exterior. É ferramenta de
+sourcing (10 a 15 vagas por semana para abordagem direta), por isso o
+`min_score` é 7,0.
+
+```
+python screen.py --config config_intl.yaml          # rodada real
+python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
+```
+
+- **Arquivos próprios:** `cv_intl.txt` (CV em inglês), `preferencias_intl.txt`,
+  `output/historico_intl.json` (chaves com prefixo `intl:`),
+  `output/vagas_coletadas_intl.json`, `output/vagas_intl_<data>.csv/.xlsx` e
+  `output/novas_intl_<data>.csv`. A nota de um perfil nunca aparece no outro.
+- **Fontes:** Remotive, We Work Remotely (5 categorias), Remote OK, Remote.io,
+  Himalayas, Jobicy, Working Nomads, Workable no mundo todo (só remotas que
+  aceitam Brasil) e boards de empresas estrangeiras. Gupy, InHire, Shopee,
+  TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
+- **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,
+  elegibilidade para o Brasil 20% e ausência de gap 15%, mais inglês exigido,
+  tipo de empresa e qual é o gap.
+- **Regras:** estágio, gestão de pessoas, espanhol obrigatório, autorização de
+  trabalho em outro país ou vaga que não aceita Brasil viram `nao_aplicar`.
+  Inglês nativo, SQL/Python avançado ou elegibilidade incerta deixam a vaga no
+  máximo em `avaliar`. Vaga em dólar não tem problema de senioridade, a não
+  ser que a própria vaga exija. Presencial/híbrida no Brasil só fica se for de
+  empresa estrangeira ou pagar em dólar.
+- A tarefa agendada continua rodando só o Perfil 1.
+- **Painel:** o `sincronizar.py` sobe também o último `vagas_intl_*.csv`; na aba
+  "Vagas de hoje" há a coluna Perfil e o filtro Brasil / Internacional.
+
 ## Como foi construído
 
 Projeto pessoal, desenvolvido em par com o **Claude Code** (IA de

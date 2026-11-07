@@ -1313,6 +1313,7 @@ def test_nuvem_e_sincronizar():
             p = navegador.get("/api/painel").get_json()
             assert [v["titulo"] for v in p["vagas"]] == ["Analista de RevOps", "Analista de Growth"]
             assert p["pc_visto_em"] and p["relatorio"] == "vagas_triadas_2026-01-01.csv"
+            assert {v["perfil"] for v in p["vagas"]} == {"br"}
             # o mapa de lacunas sobe junto, para a aba "Lacunas"
             assert p["lacunas"]["relatorio"] == "vagas_triadas_2026-01-01.csv" and p["lacunas"]["vagas"] == 1
             assert {l["termo"]: bool(l["no_cv"]) for l in p["lacunas"]["linhas"]} == {"SQL": True, "Power BI": False}
@@ -1401,6 +1402,210 @@ def test_nuvem_e_sincronizar():
     print("OK  test_nuvem_e_sincronizar")
 
 
+# ---------------------------------------------------------------------------
+# Perfil 2 (config_intl.yaml / perfil_intl.py) — 07/11/2026
+# ---------------------------------------------------------------------------
+def test_intl_coletores_novos():
+    """Himalayas, Jobicy, Working Nomads e o Workable sem país (Perfil 2): só
+    fica vaga remota que aceita Brasil, e o filtro de título vale."""
+    from collectors import himalayas, jobicy, workable, workingnomads
+    hm = {"jobs": [
+        {"title": "GTM Engineer", "companyName": "Acme", "locationRestrictions": [], "guid": "https://himalayas.app/a",
+         "description": "<p>Clay + n8n</p>", "pubDate": 1793900000, "minSalary": 60000, "maxSalary": 90000,
+         "currency": "USD"},
+        {"title": "Marketplace Operations Lead", "companyName": "Beta",
+         "locationRestrictions": [{"name": "United States"}], "guid": "https://himalayas.app/b", "description": "x"},
+        {"title": "Revenue Operations Manager", "companyName": "Gamma",
+         "locationRestrictions": [{"name": "Brazil"}, {"name": "Mexico"}], "guid": "https://himalayas.app/c",
+         "description": "x"},
+        {"title": "Backend Engineer", "companyName": "Delta", "locationRestrictions": [], "guid": "d", "description": "x"},
+    ]}
+    with patch("collectors.himalayas.requests.get", return_value=_FakeResp(hm)), \
+            patch("collectors.himalayas.time.sleep"):
+        jobs = himalayas.fetch_himalayas("gtm", term_filter=["gtm", "operations"], max_pages=3)
+    assert [j["empresa"] for j in jobs] == ["Acme", "Gamma"]  # US only e engenharia ficam de fora
+    assert jobs[0]["remoto"] is True and jobs[0]["salario"] == "USD 60,000 a 90,000 /ano"
+    assert jobs[0]["publicado_em"].startswith("2026-")
+
+    jb = {"jobs": [
+        {"id": 1, "url": "https://jobicy.com/1", "jobTitle": "E-commerce Operations Specialist", "companyName": "Shop",
+         "jobGeo": "LATAM", "jobDescription": "<p>Amazon</p>", "pubDate": "2026-11-01 10:00:00"},
+        {"id": 2, "url": "https://jobicy.com/2", "jobTitle": "Growth Operations", "companyName": "Eu",
+         "jobGeo": "Europe", "jobDescription": "x", "pubDate": "2026-11-01"},
+    ]}
+    with patch("collectors.jobicy.requests.get", return_value=_FakeResp(jb)) as m:
+        jobs = jobicy.fetch_jobicy(geo="latam", term_filter=["operations"])
+    assert m.call_args.kwargs["params"]["geo"] == "latam"
+    assert [j["empresa"] for j in jobs] == ["Shop"] and jobs[0]["publicado_em"] == "2026-11-01"
+
+    wn = [{"url": "https://wn/1", "title": "Partner Success Manager", "company_name": "P", "location": "Anywhere",
+           "description": "x", "pub_date": "2026-11-02T00:00:00"},
+          {"url": "https://wn/2", "title": "Partner Success Manager", "company_name": "Q", "location": "USA",
+           "description": "x", "pub_date": "2026-11-02"}]
+    with patch("collectors.workingnomads.requests.get", return_value=_FakeResp(wn)):
+        jobs = workingnomads.fetch_workingnomads(term_filter=["partner"])
+    assert [j["empresa"] for j in jobs] == ["P"]
+
+    wk = {"jobs": [
+        {"id": "r1", "title": "Revenue Operations Manager", "workplace": "remote", "description": "Remote, LATAM.",
+         "location": {"countryName": ""}, "company": {"title": "Ok"}, "url": "u1"},
+        {"id": "r2", "title": "Revenue Operations Manager", "workplace": "remote", "description": "x",
+         "location": {"countryName": "United States"}, "company": {"title": "Us"}, "url": "u2"},
+        {"id": "r3", "title": "Revenue Operations Manager", "workplace": "on_site", "description": "Brazil",
+         "location": {"countryName": "Germany"}, "company": {"title": "De"}, "url": "u3"},
+    ]}
+    with patch("collectors.workable.requests.get", return_value=_FakeResp(wk)) as m, \
+            patch("collectors.workable.time.sleep"):
+        jobs = workable.fetch_workable("revops", location="", somente_aceita_brasil=True)
+    assert "location" not in m.call_args.kwargs["params"]  # sem país: mundo todo
+    assert [j["empresa"] for j in jobs] == ["Ok"]
+    # Workable espera e tenta de novo no 429
+    with patch("collectors.workable.requests.get", side_effect=[_FakeResp({}, 429), _FakeResp(wk)]), \
+            patch("collectors.workable.time.sleep") as dorme:
+        jobs = workable.fetch_workable("revops", location="", somente_aceita_brasil=True)
+    assert [j["empresa"] for j in jobs] == ["Ok"] and dorme.called
+
+    # mesmo anúncio com códigos diferentes conta uma vez no Perfil 2
+    import screen
+    a = {"empresa": "Hire Overseas", "titulo": "E-Commerce Operations Specialist (BBS936)"}
+    b = {"empresa": "Hire Overseas", "titulo": "E-Commerce Operations Specialist (BBS923)"}
+    assert screen.chave_dedup(a, True) == screen.chave_dedup(b, True)
+    assert screen.chave_dedup(a) != screen.chave_dedup(b)  # Perfil 1 não muda
+    print("OK  test_intl_coletores_novos")
+
+
+def test_intl_elegibilidade_e_regras():
+    import perfil_intl as pi
+
+    def vaga(titulo="Revenue Operations Manager", descricao="", cidade="Remote", remoto=True, **jev):
+        r = {"titulo": titulo, "empresa": "X", "cidade": cidade, "estado": "", "remoto": remoto,
+             "descricao": descricao, "recomendacao": "aplicar_agora", "gap_critico": "não",
+             "ingles_exigido": "avancado", "elegibilidade_jev": "sim"}
+        r.update(jev)
+        return pi.ajustar_recomendacao_intl(r)
+
+    assert pi.checar_elegibilidade({"cidade": "Remote - LATAM", "remoto": True})[0] == "sim"
+    assert pi.checar_elegibilidade({"cidade": "Remote", "remoto": True,
+                                    "descricao": "Work from anywhere in the world."})[0] == "sim"
+    assert pi.checar_elegibilidade({"cidade": "Remote", "remoto": True,
+                                    "descricao": "You must be authorized to work in the US."})[0] == "nao"
+    assert pi.checar_elegibilidade({"cidade": "Remote", "remoto": True, "descricao": "US-only role."})[0] == "nao"
+    assert pi.checar_elegibilidade({"cidade": "Remote", "remoto": True, "descricao": "Great team."})[0] == "incerta"
+    assert pi.checar_elegibilidade({"cidade": "São Paulo", "estado": "SP", "remoto": False})[0] == "sim"
+
+    assert pi.exige_espanhol("Fluent Spanish is required.") and pi.exige_espanhol("Bilingual English/Spanish")
+    assert not pi.exige_espanhol("Spanish is a plus.") and not pi.exige_espanhol("We serve Spanish markets")
+
+    # aceita Brasil e sem bloqueio: fica aplicar_agora
+    r = vaga(descricao="Remote worldwide. Own our Clay workflows.")
+    assert r["recomendacao"] == "aplicar_agora" and r["elegibilidade"] == "sim" and r["perfil"] == "intl"
+    # regra do Michel: "entry level" não derruba vaga em dólar; estágio sim
+    assert vaga(titulo="Entry Level Marketplace Operations", descricao="Anywhere in the world")[
+        "recomendacao"] == "aplicar_agora"
+    assert vaga(titulo="Marketplace Operations Intern")["recomendacao"] == "nao_aplicar"
+    assert vaga(descricao="Remote worldwide. You will manage a team of 5.")["recomendacao"] == "nao_aplicar"
+    r = vaga(descricao="Remote worldwide. Fluent Spanish required.")
+    assert r["recomendacao"] == "nao_aplicar" and "espanhol" in r["ajuste"]
+    assert vaga(descricao="Must be authorized to work in the United States")["recomendacao"] == "nao_aplicar"
+    assert vaga(descricao="Remote worldwide. Native English speaker.")["recomendacao"] == "avaliar"
+    assert vaga(descricao="Remote worldwide. Advanced SQL required.")["recomendacao"] == "avaliar"
+    # descrição muda: vale o Jev; Jev incerto -> no máximo avaliar
+    r = vaga(descricao="Great team.", elegibilidade_jev="incerto")
+    assert r["recomendacao"] == "avaliar" and r["elegibilidade"] == "incerta" and "incerta" in r["ajuste"]
+    assert vaga(descricao="Great team.", elegibilidade_jev="nao")["recomendacao"] == "nao_aplicar"
+    # nunca sobe: nao_aplicar do Jev continua nao_aplicar
+    assert vaga(descricao="Anywhere in the world", recomendacao="nao_aplicar")["recomendacao"] == "nao_aplicar"
+    print("OK  test_intl_elegibilidade_e_regras")
+
+
+def test_intl_rodada_mock_separada():
+    """`screen.py --config config_intl.yaml --mock` de ponta a ponta, sem rede:
+    histórico, coleta e relatório próprios; o histórico do Perfil 1 não é
+    tocado; vaga presencial no Brasil sem dólar sai; as 3 vagas do teste de
+    aceite batem."""
+    import screen
+    import yaml as _yaml
+    raiz = Path(__file__).parent
+    cfg = _yaml.safe_load((raiz / "config_intl.yaml").read_text(encoding="utf-8"))
+    vagas = [
+        {"id": "t:1", "fonte": "weworkremotely", "titulo": "GTM Engineer", "empresa": "BuzzLead",
+         "cidade": "Anywhere in the World", "estado": "", "remoto": True, "link": "https://buzzlead.io/careers",
+         "descricao": "Remote global, async-first. Build outbound systems with Clay, n8n and AI for B2B clients. "
+                      "Revenue operations, GTM, e-commerce, marketplace, automation, Claude Code.",
+         "publicado_em": "2026-11-05"},
+        {"id": "t:2", "fonte": "workable", "titulo": "Analista de Operações Pleno", "empresa": "Varejo SA",
+         "cidade": "São Paulo", "estado": "SP", "remoto": False, "link": "https://x/2",
+         "descricao": "Presencial em São Paulo.", "publicado_em": "2026-11-05"},
+        {"id": "t:3", "fonte": "remotive", "titulo": "Marketplace Operations Manager", "empresa": "LatamCo",
+         "cidade": "LATAM", "estado": "", "remoto": True, "link": "https://x/3",
+         "descricao": "Marketplace operations, sellers. Fluent Spanish is required.", "publicado_em": "2026-11-05"},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        cfg.update(output_dir=str(tmp / "output"), cv_path=str(tmp / "cv_intl.txt"),
+                   preferencias_path=str(tmp / "pref.txt"), min_score=0)
+        (tmp / "cv_intl.txt").write_text("# TEMPORÁRIO — substituir pelo CV em inglês\n"
+                                         + (raiz / "cv.txt").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp / "config_intl.yaml").write_text(_yaml.safe_dump(cfg, allow_unicode=True), encoding="utf-8")
+        (tmp / "output").mkdir()
+        (tmp / "output" / "historico_mock.json").write_text('{"p1|vaga": {"nota_fit": 9}}', encoding="utf-8")
+
+        coletar_de_verdade = screen.collect_jobs
+
+        def coletar(config):
+            # passa pelos mesmos descartes do collect_jobs (somente_remoto)
+            with patch("screen._rodar_tarefas", return_value=[[dict(v) for v in vagas]]):
+                return coletar_de_verdade({**config, "sources": {}})
+
+        with patch("screen.collect_jobs", side_effect=coletar), \
+                patch.object(sys, "argv", ["screen.py", "--config", str(tmp / "config_intl.yaml"), "--mock"]):
+            screen.main()
+        out = tmp / "output"
+        hist = json.loads((out / "historico_mock_intl.json").read_text(encoding="utf-8"))
+        assert hist and all(k.startswith("intl:") for k in hist)
+        assert json.loads((out / "historico_mock.json").read_text(encoding="utf-8")) == {"p1|vaga": {"nota_fit": 9}}
+        assert (out / "vagas_coletadas_intl.json").exists() and not (out / "vagas_coletadas.json").exists()
+        hoje = dt.date.today().isoformat()
+        assert (out / f"vagas_intl_{hoje}.xlsx").exists() and not list(out.glob("vagas_triadas_*"))
+        with (out / f"vagas_intl_{hoje}.csv").open(encoding="utf-8-sig") as f:
+            rows = {r["empresa"]: r for r in csv.DictReader(f)}
+        assert set(rows) == {"BuzzLead", "LatamCo"}  # presencial em SP sem dólar saiu
+        for col in ("perfil", "elegibilidade", "tipo_empresa", "ingles_exigido", "cv_usado"):
+            assert col in rows["BuzzLead"]
+        assert rows["BuzzLead"]["perfil"] == "intl" and rows["BuzzLead"]["elegibilidade"] == "sim"
+        assert rows["BuzzLead"]["cv_usado"].startswith("TEMPORÁRIO")
+        assert rows["LatamCo"]["recomendacao"] == "nao_aplicar" and "espanhol" in rows["LatamCo"]["ajuste"]
+    print("OK  test_intl_rodada_mock_separada")
+
+
+def test_painel_perfil_intl():
+    """O sincronizar.py junta o último relatório do Perfil 2 (vagas_intl_*) às
+    vagas do Perfil 1, cada uma com o `perfil`, e o painel mostra as duas."""
+    import sincronizar as sinc
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp)
+        _montar_saida(out, [{"recomendacao": "aplicar_agora", "nota_fit": "9.1", "titulo": "Analista de RevOps",
+                             "empresa": "Acme", "fonte": "gupy", "link": "https://x/1", "descricao": ""}])
+        campos = ["perfil", "recomendacao", "nota_fit", "titulo", "empresa", "fonte", "link", "elegibilidade",
+                  "tipo_empresa", "ingles_exigido"]
+        with (out / "vagas_intl_2026-01-01.csv").open("w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=campos)
+            w.writeheader()
+            w.writerow(dict(zip(campos, ["intl", "aplicar_agora", "8.6", "E-commerce Operations Associate", "Paired",
+                                         "workable", "https://y/1", "sim", "agencia", "avancado"])))
+            w.writerow(dict(zip(campos, ["intl", "nao_aplicar", "7.1", "Spanish Ops", "Z", "remotive",
+                                         "https://y/2", "sim", "saas", "avancado"])))
+        nome, vagas = sinc.vagas_do_relatorio(out)
+    assert nome == "vagas_triadas_2026-01-01.csv"
+    assert [(v["titulo"], v["perfil"]) for v in vagas] == [
+        ("Analista de RevOps", "br"), ("E-commerce Operations Associate", "intl")]
+    intl = vagas[1]
+    assert intl["elegibilidade"] == "sim" and intl["tipo_empresa"] == "agencia" and intl["n"] > vagas[0]["n"]
+    html = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'id="perfil"' in html and "perfilVaga" in html
+    print("OK  test_painel_perfil_intl")
+
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -1430,4 +1635,8 @@ if __name__ == "__main__":
     test_bebee_descricao_completa_repontua()
     test_scoring_and_ranking_end_to_end()
     test_nuvem_e_sincronizar()
+    test_intl_coletores_novos()
+    test_intl_elegibilidade_e_regras()
+    test_intl_rodada_mock_separada()
+    test_painel_perfil_intl()
     print("\nTodos os testes offline passaram.")

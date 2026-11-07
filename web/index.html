@@ -154,7 +154,13 @@ const hash = location.hash.slice(1);
 let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
 if (!ABAS.some(a => a.id === aba)) aba = "candidaturas";
 let filtroFunil = "ativas";
-let filtroVagas = { busca: "", rec: "aplicar_agora", esconder: true, novas: false, descartadas: false, limite: 150 };
+let filtroVagas = { busca: "", rec: "aplicar_agora", perfil: lerLocal("perfil") || "todos", esconder: true, novas: false, descartadas: false, limite: 150 };
+// Perfil 2 (07/11/2026): vagas internacionais em dólar, do relatório vagas_intl_*
+const PERFIS = { br: "Brasil", intl: "Internacional" };
+const ELEGIB = { sim: "aceita Brasil", incerta: "elegibilidade incerta", nao: "não aceita Brasil" };
+const TIPO_EMPRESA = { agencia: "agência", marca_dtc: "marca DTC", empresa_pequena: "empresa pequena",
+  empresa_media: "empresa média", marketplace: "marketplace", saas: "SaaS", grande_corporacao: "grande corporação" };
+const INGLES = { basico: "inglês básico", intermediario: "inglês intermediário", avancado: "inglês avançado", nativo: "inglês nativo" };
 // rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
 // a atualização automática da página não apagar o que foi digitado
 let formCand = null;
@@ -224,7 +230,8 @@ function haQuantoTempo(iso) {
   return `há ${Math.round(min / 1440)} dias`;
 }
 // "vagas_triadas_2026-10-28.csv" -> "2026-10-28"
-function dataRelatorio() { return (dados.relatorio || "").replace("vagas_triadas_", "").replace(".csv", ""); }
+function dataRelatorio() { return (dados.relatorio || "").replace("vagas_triadas_", "").replace("vagas_intl_", "").replace(".csv", ""); }
+function perfilVaga(v) { return v.perfil || "br"; }
 // nova = apareceu no radar pela 1ª vez no dia do relatório
 function ehNova(v) { return !!v.adicionada_em && v.adicionada_em === dataRelatorio(); }
 function aviso(texto) {
@@ -449,6 +456,7 @@ function abaVagas() {
   const busca = f.busca.toLowerCase();
   const lista = dados.vagas.filter(v =>
     (f.rec === "todas" || v.recomendacao === f.rec) &&
+    (f.perfil === "todos" || perfilVaga(v) === f.perfil) &&
     (!f.esconder || (!v.status && !v.descartada)) &&
     (!f.novas || ehNova(v)) &&
     (!busca || `${v.titulo} ${v.empresa}`.toLowerCase().includes(busca)));
@@ -459,6 +467,11 @@ function abaVagas() {
       <option value="aplicar_agora" ${f.rec === "aplicar_agora" ? "selected" : ""}>Aplicar agora</option>
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
+    </select>
+    <select id="perfil" title="Perfil 1: Brasil · Perfil 2: vagas internacionais em dólar">
+      <option value="todos" ${f.perfil === "todos" ? "selected" : ""}>Os dois perfis</option>
+      <option value="br" ${f.perfil === "br" ? "selected" : ""}>Brasil (${dados.vagas.filter(v => perfilVaga(v) === "br").length})</option>
+      <option value="intl" ${f.perfil === "intl" ? "selected" : ""}>Internacional (${dados.vagas.filter(v => perfilVaga(v) === "intl").length})</option>
     </select>
     <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder enviadas e descartadas</label>
     <label class="sub"><input type="checkbox" id="novas" ${f.novas ? "checked" : ""}> Só as novas</label>
@@ -472,7 +485,10 @@ function abaVagas() {
       <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}${
         Number(v.idade_dias) > DIAS_VAGA_ANTIGA ? `<span class="chip atraso" title="Publicada em ${esc(v.publicado_em)}">no ar há ${esc(v.idade_dias)} d</span>` : ""}${
         /dirigido a IA/.test(v.alerta || "") ? `<span class="chip alerta" title="${esc(v.alerta)}">⚠ texto suspeito</span>` : ""}
-        <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}</div></td>
+        <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}${
+          perfilVaga(v) === "intl" ? [ELEGIB[v.elegibilidade], TIPO_EMPRESA[v.tipo_empresa] || v.tipo_empresa, INGLES[v.ingles_exigido]]
+            .filter(Boolean).map(x => " · " + esc(x)).join("") : ""}</div></td>
+      <td class="sub">${esc(PERFIS[perfilVaga(v)] || perfilVaga(v))}</td>
       <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
       <td class="sub">${esc(v.fonte)}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
@@ -485,7 +501,7 @@ function abaVagas() {
   const mais = lista.length > f.limite ? `<div class="barra" style="justify-content:center;margin-top:12px">
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
   return barra + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
-    <th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
+    <th>Perfil</th><th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
 }
 
 function linhaDescarte() {
@@ -582,6 +598,7 @@ conteudo.addEventListener("click", async e => {
 conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
+  if (el.id === "perfil") { filtroVagas.perfil = el.value; gravarLocal("perfil", el.value); filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
   if (el.id === "filtro-lacunas") { filtroLacunas.ver = el.value; lacunaAberta = null; desenhar(); return; }
   if (el.id === "descartadas") { filtroVagas.descartadas = el.checked; desenhar(); return; }

@@ -84,9 +84,12 @@ def enviar_ntfy(topico: str, titulo: str, mensagem: str, email: str | None = Non
     resp.raise_for_status()
 
 
-def salvar_e_avisar(novas: list[dict], out_dir: Path, config: dict) -> list[dict]:
+def salvar_e_avisar(novas: list[dict], out_dir: Path, config: dict, nome: str = "novas",
+                    titulo_aviso: str = "Radar") -> list[dict]:
+    """`nome`/`titulo_aviso`: o Perfil 2 grava novas_intl_<data>.csv e avisa
+    como "Radar internacional", pra não sobrescrever o CSV do Perfil 1."""
     relevantes = filtrar_relevantes(novas, config)
-    path = out_dir / f"novas_{dt.date.today().isoformat()}.csv"
+    path = out_dir / f"{nome}_{dt.date.today().isoformat()}.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=COLUNAS)
         w.writeheader()
@@ -100,7 +103,7 @@ def salvar_e_avisar(novas: list[dict], out_dir: Path, config: dict) -> list[dict
     topico = _ler_env("NTFY_TOPIC")
     if topico and relevantes:
         n = len(relevantes)
-        titulo = f"Radar: {n} vaga{'s' if n > 1 else ''} nova{'s' if n > 1 else ''} pra você"
+        titulo = f"{titulo_aviso}: {n} vaga{'s' if n > 1 else ''} nova{'s' if n > 1 else ''} pra você"
         try:
             email = _ler_env("NTFY_EMAIL")
             enviar_ntfy(topico, titulo, montar_mensagem(relevantes), email=email,

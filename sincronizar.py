@@ -5,7 +5,8 @@ Liga o PC ao painel de candidaturas na nuvem (pasta web/, publicada na Vercel).
 Chamado pelo rodar_diario.bat depois da coleta:
 1. sobe as vagas "aplicar agora" e "avaliar" do relatório do dia, para a aba
    "Vagas de hoje" (só quando as vagas mudaram, mesmo que o nome do relatório
-   seja o mesmo);
+   seja o mesmo) — as do Perfil 1 (vagas_triadas_*) e as do último relatório
+   do Perfil 2 (vagas_intl_*), cada uma marcada com o `perfil`;
 2. sobe o mapa de lacunas do mesmo relatório (lacunas.py), para a aba
    "Lacunas";
 3. baixa as candidaturas registradas no painel para output/candidaturas.json —
@@ -35,7 +36,10 @@ from novidades import _ler_env
 
 # o que a aba "Vagas de hoje" recebe de cada vaga do relatório
 CAMPOS_LISTA = ["nota_fit", "recomendacao", "titulo", "empresa", "fonte", "cidade", "remoto",
-                "salario", "publicado_em", "idade_dias", "adicionada_em", "alerta", "trilha", "link"]
+                "salario", "publicado_em", "idade_dias", "adicionada_em", "alerta", "trilha", "link",
+                "perfil", "elegibilidade", "tipo_empresa", "ingles_exigido"]
+# (padrão do relatório, perfil) — o Perfil 2 vem depois na ordem do painel
+RELATORIOS = [("vagas_triadas_*.csv", "br"), ("vagas_intl_*.csv", "intl")]
 
 
 class Nuvem:
@@ -70,19 +74,23 @@ def assinatura(vagas) -> str:
 
 
 def vagas_do_relatorio(out_dir: Path) -> tuple[str, list[dict]]:
-    """(nome do último relatório, vagas "aplicar agora" e "avaliar" dele)."""
-    relatorios = sorted(out_dir.glob("vagas_triadas_*.csv"))
-    if not relatorios:
-        return "", []
-    with relatorios[-1].open(encoding="utf-8-sig") as f:
-        linhas = list(csv.DictReader(f))
-    vagas = []
-    for n, v in enumerate(linhas, 1):
-        if v.get("recomendacao") not in ("aplicar_agora", "avaliar"):
+    """(nome do último relatório, vagas "aplicar agora" e "avaliar" dele).
+    Junta o último relatório de cada perfil; o nome devolvido é o do Perfil 1
+    (o painel tira a data dele), ou o do Perfil 2 se só ele existir."""
+    nome, vagas = "", []
+    for ordem, (padrao, perfil) in enumerate(RELATORIOS):
+        relatorios = sorted(out_dir.glob(padrao))
+        if not relatorios:
             continue
-        vagas.append({**{k: v.get(k, "") for k in CAMPOS_LISTA}, "n": n,
-                      "id": hashlib.md5(v["link"].encode()).hexdigest()[:12]})
-    return relatorios[-1].name, vagas
+        nome = nome or relatorios[-1].name
+        with relatorios[-1].open(encoding="utf-8-sig") as f:
+            linhas = list(csv.DictReader(f))
+        for n, v in enumerate(linhas, 1):
+            if v.get("recomendacao") not in ("aplicar_agora", "avaliar"):
+                continue
+            vagas.append({**{k: v.get(k, "") for k in CAMPOS_LISTA}, "perfil": perfil,
+                          "n": ordem * 100_000 + n, "id": hashlib.md5(v["link"].encode()).hexdigest()[:12]})
+    return nome, vagas
 
 
 def lacunas_do_relatorio(config: dict) -> dict:

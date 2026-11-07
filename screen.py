@@ -36,6 +36,8 @@ from collectors.ashby import fetch_ashby
 from collectors.bebee import fetch_bebee
 from collectors.didi import fetch_didi
 from collectors.greenhouse import fetch_greenhouse
+from collectors.himalayas import fetch_himalayas
+from collectors.jobicy import fetch_jobicy
 from collectors.gupy import fetch_gupy, fetch_gupy_empresa
 from collectors.inhire import fetch_inhire
 from collectors.lever import fetch_lever
@@ -50,11 +52,13 @@ from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
 from collectors.workday import fetch_workday
+from collectors.workingnomads import fetch_workingnomads
 from collectors import _cache as desc_cache
 from collectors._util import (_fold, alerta_texto, boards_zerados, fora_do_brasil, limpar_boards,
                               remover_invisiveis, title_filter, title_matches)
 from exportar_excel import write_xlsx
 from jev_client import JevClient, JevError, MockJevClient
+import perfil_intl
 
 # Era 2500 até 23/09/2026 — cortava 95-100% das vagas da Greenhouse e da Ashby,
 # justamente na parte dos requisitos (que costuma vir no fim).
@@ -92,12 +96,14 @@ _JUNIOR_RE = re.compile(r"\b(j[uú]nior|jr)\b", re.IGNORECASE)
 # detecção objetiva (fonte remota internacional, ou US$/USD no salário ou na
 # descrição); o caso "empresa estrangeira sem salário explícito" fica pro Jev,
 # via preferencias. "R$ 5.000" não conta como dólar.
-_FONTES_DOLAR = {"remoteok", "remoteio", "remotive", "weworkremotely"}
+_FONTES_DOLAR = {"remoteok", "remoteio", "remotive", "weworkremotely", "himalayas", "jobicy", "workingnomads"}
 _DOLAR_RE = re.compile(r"US\$|\bUSD\b|(?<![R$\w])\$\s?\d")
 
 
-def paga_em_dolar(r: dict) -> bool:
-    if r.get("fonte") in _FONTES_DOLAR:
+def paga_em_dolar(r: dict, fontes_extra=()) -> bool:
+    """`fontes_extra`: fontes que no config em uso só têm empresa estrangeira
+    (no config_intl.yaml, os boards de Greenhouse/Lever/Ashby — `fontes_pagam_dolar`)."""
+    if r.get("fonte") in _FONTES_DOLAR or r.get("fonte") in fontes_extra:
         return True
     return bool(_DOLAR_RE.search(f"{r.get('salario') or ''} {r.get('descricao') or ''}"))
 
@@ -209,9 +215,21 @@ def normalize_key(job: dict) -> str:
     return f"{_fold(job['empresa']).strip()}|{_fold(job['titulo']).strip()}"
 
 
-def _add(jobs: list[dict], seen: set, found: list[dict]) -> None:
+# código de anúncio no título ("... (BBS936)", "[Job-31508]"): o mesmo anúncio
+# repetido com códigos diferentes (Hire Overseas, 07/11/2026). Só no Perfil 2
+# (`dedup_ignora_codigos`), pra não mudar as chaves do histórico do Perfil 1.
+_CODIGO_TITULO_RE = re.compile(r"\s*[\(\[]\s*(job\s*-?\s*)?[a-z]{0,6}\s*-?\s*\d{2,}\s*[\)\]]", re.IGNORECASE)
+
+
+def chave_dedup(job: dict, ignora_codigos: bool = False) -> str:
+    if not ignora_codigos:
+        return normalize_key(job)
+    return normalize_key({**job, "titulo": _CODIGO_TITULO_RE.sub("", job["titulo"] or "")})
+
+
+def _add(jobs: list[dict], seen: set, found: list[dict], ignora_codigos: bool = False) -> None:
     for j in found:
-        key = normalize_key(j)
+        key = chave_dedup(j, ignora_codigos)
         if key not in seen and j["titulo"]:
             seen.add(key)
             jobs.append(j)
@@ -262,9 +280,14 @@ def collect_jobs(config: dict) -> list[dict]:
             tarefa("gupy", f"Gupy falhou para '{term}'",
                    lambda t=term: fetch_gupy(t, limit=gupy_limit, city=sources["gupy"].get("city", "")))
         if on("remotive"):
+            # limite próprio (sources.remotive.limit_per_term): com o geral de 15
+            # o Remotive trazia 6 vagas na rodada inteira
+            rm_limit = limit if config.get("limit_per_company") is not None else \
+                sources["remotive"].get("limit_per_term", limit)
             tarefa("remotive", f"Remotive falhou para '{term}'",
-                   lambda t=term: fetch_remotive(t, category=sources["remotive"].get("category", ""), limit=limit))
-        if on("weworkremotely"):
+                   lambda t=term, n=rm_limit: fetch_remotive(
+                       t, category=sources["remotive"].get("category", ""), limit=n))
+        if on("weworkremotely") and not sources["weworkremotely"].get("categories"):
             tarefa("weworkremotely", f"We Work Remotely falhou para '{term}'",
                    lambda t=term: fetch_weworkremotely(
                        t, category=sources["weworkremotely"].get("category", ""), limit=limit))
@@ -274,6 +297,14 @@ def collect_jobs(config: dict) -> list[dict]:
         if on("amazon"):
             tarefa("amazon", f"Amazon falhou para '{term}'",
                    lambda t=term: fetch_amazon(t, limit=limit, country=sources["amazon"].get("country", "BRA")))
+
+    # We Work Remotely com várias categorias (config_intl.yaml): cada feed é
+    # lido uma vez só e passa pelo filtro de título, em vez de uma leitura do
+    # mesmo feed por termo de busca
+    if on("weworkremotely") and sources["weworkremotely"].get("categories"):
+        for cat in sources["weworkremotely"]["categories"]:
+            tarefa("weworkremotely", f"We Work Remotely falhou para '{cat}'",
+                   lambda c=cat: _filtered(fetch_weworkremotely("", category=c, limit=10_000)))
 
     # Mercado Livre: sem busca por termo (ver collectors/mercadolivre.py),
     # traz as N primeiras páginas de vagas do Brasil uma única vez
@@ -349,10 +380,13 @@ def collect_jobs(config: dict) -> list[dict]:
     if on("workable"):
         wk = sources["workable"]
         wk_limit = limit if company_limit is not None else wk.get("limit_per_term", 60)
+        # remoto_global (config_intl.yaml): busca sem país e fica só com as
+        # remotas que aceitam Brasil/LATAM/anywhere
         for term in terms:
             tarefa("workable", f"Workable falhou para '{term}'",
                    lambda t=term: fetch_workable(
-                       t, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok))
+                       t, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok,
+                       somente_aceita_brasil=bool(wk.get("remoto_global"))))
 
     # vagas remotas de empresas internacionais que aceitam Brasil/LATAM
     if on("remoteok"):
@@ -363,6 +397,22 @@ def collect_jobs(config: dict) -> list[dict]:
         tarefa("remoteio", "Remote.io falhou", lambda: fetch_remoteio(
             areas=sources["remoteio"].get("areas"), term_filter=titulo_ok, limit=company_limit,
             max_novas=sources["remoteio"].get("max_novas_por_rodada", 300)))
+
+    # boards remotos com API pública (Perfil 2): só vagas que aceitam Brasil
+    if on("himalayas"):
+        hm = sources["himalayas"]
+        for term in terms:
+            tarefa("himalayas", f"Himalayas falhou para '{term}'", lambda t=term: fetch_himalayas(
+                t, country=hm.get("country", "Brazil"), term_filter=titulo_ok,
+                max_pages=hm.get("max_pages", 3), limit=company_limit))
+    if on("jobicy"):
+        jb = sources["jobicy"]
+        for geo in jb.get("geos", ["anywhere", "latam", "brazil"]):
+            tarefa("jobicy", f"Jobicy falhou para '{geo}'",
+                   lambda g=geo: fetch_jobicy(geo=g, term_filter=titulo_ok, limit=company_limit))
+    if on("workingnomads"):
+        tarefa("workingnomads", "Working Nomads falhou",
+               lambda: fetch_workingnomads(term_filter=titulo_ok, limit=company_limit))
 
     limpar_boards()
     resultados = _rodar_tarefas(tarefas, config)
@@ -375,7 +425,7 @@ def collect_jobs(config: dict) -> list[dict]:
     jobs: list[dict] = []
     seen: set = set()
     for found in resultados:
-        _add(jobs, seen, found)
+        _add(jobs, seen, found, ignora_codigos=bool(config.get("dedup_ignora_codigos")))
 
     # a exclusão vale também pras fontes de busca por termo (a Gupy com
     # "e-commerce" traz vendedor, caixa, estágio...)
@@ -388,13 +438,24 @@ def collect_jobs(config: dict) -> list[dict]:
             f"{j.get('cidade') or ''} {j.get('estado') or ''}", bool(j.get("remoto")), j.get("descricao") or "")]
         if antes > len(jobs):
             print(f"  {antes - len(jobs)} vagas presenciais/híbridas fora do Brasil descartadas.")
+
+    # Perfil 2 (somente_remoto): presencial/híbrida no Brasil só fica se for de
+    # empresa estrangeira ou pagar em dólar (regra do Michel, 07/11/2026)
+    if config.get("somente_remoto"):
+        extra = set(config.get("fontes_pagam_dolar") or [])
+        antes = len(jobs)
+        jobs = [j for j in jobs if j.get("remoto") or paga_em_dolar(j, extra)]
+        if antes > len(jobs):
+            print(f"  {antes - len(jobs)} vagas presenciais/híbridas no Brasil sem sinal de dólar descartadas.")
     return jobs
 
 
 # Máximo de buscas simultâneas no MESMO site, pra não parecer ataque nem
 # levar bloqueio (o total geral é collect_workers). beBee é leitura de HTML e
 # já bloqueou acesso automatizado antes — vai mais devagar.
-_SIMULTANEAS_POR_FONTE = {"bebee": 2}
+# Workable: com 4 ao mesmo tempo e a busca no mundo todo (Perfil 2) deu 429
+# em 14 de 26 buscas (07/11/2026)
+_SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1}
 _SIMULTANEAS_PADRAO = 4
 
 
@@ -447,6 +508,8 @@ def score_job(client, cv_text: str, job: dict, questions: dict, preferencias: st
         state["preferencias"] = preferencias
     resp = client.evaluate(state, questions)
     answers = resp["answers"]
+    if "elegibilidade_brasil" in questions:  # Perfil 2 (perfil_intl.py)
+        return {**job, **perfil_intl.notas_intl(answers)}
 
     aderencia = answers["aderencia"]
     senioridade = answers["senioridade_compativel"]["noul"]
@@ -512,9 +575,12 @@ PREFERENCIAS_LOCAIS = Path("preferencias.txt")
 def carregar_preferencias(config: dict) -> str:
     """Preferências do candidato: o arquivo local `preferencias.txt` (fora do
     git, pra não publicar dados pessoais) tem prioridade sobre o exemplo que
-    está no config.yaml."""
-    if PREFERENCIAS_LOCAIS.exists():
-        return PREFERENCIAS_LOCAIS.read_text(encoding="utf-8").strip()
+    está no config.yaml. O config pode apontar outro arquivo em
+    `preferencias_path` (o Perfil 2 usa preferencias_intl.txt — senão herdaria
+    as preferências do Perfil 1)."""
+    local = Path(config["preferencias_path"]) if config.get("preferencias_path") else PREFERENCIAS_LOCAIS
+    if local.exists():
+        return local.read_text(encoding="utf-8").strip()
     return (config.get("preferencias") or "").strip()
 
 
@@ -539,6 +605,8 @@ def score_jobs_with_cache(
     versao: str | None = None,
     workers: int = 1,
     modelo: str | None = None,
+    campos: list[str] | None = None,
+    prefixo: str = "",
 ):
     """Pontua só as vagas que ainda não estão no histórico; reaproveita a nota das
     demais. O novo histórico contém apenas as vagas desta coleta, então vagas
@@ -557,9 +625,15 @@ def score_jobs_with_cache(
     dada por outro modelo é repontuada. Entrada sem modelo gravado (de antes de
     28/10/2026) vale para o modelo atual — senão a mudança repontuaria tudo.
 
+    `campos`: campos do Jev guardados no histórico (padrão CACHE_SCORE_FIELDS;
+    o Perfil 2 tem mais). `prefixo` vai na frente de cada chave ("intl:"), pra
+    nota de um perfil nunca valer para o outro mesmo num histórico misturado.
+
     Retorna (results, novo_cache, n_reaproveitadas, n_pontuadas)."""
+    campos = campos or CACHE_SCORE_FIELDS
+
     def _entrada(r: dict) -> dict:
-        e = {f: r[f] for f in CACHE_SCORE_FIELDS}
+        e = {f: r[f] for f in campos}
         if versao is not None:
             e["_versao"] = versao
         if modelo is not None:
@@ -575,17 +649,17 @@ def score_jobs_with_cache(
     new_cache: dict = {}
     pendentes: list[tuple[int, str, dict]] = []
     for idx, job in enumerate(jobs):
-        key = normalize_key(job)
+        key = prefixo + normalize_key(job)
         cached = cache.get(key)
         if (
             cached
-            and all(f in cached for f in CACHE_SCORE_FIELDS)
+            and all(f in cached for f in campos)
             and (versao is None or cached.get("_versao") == versao)
             and (modelo is None or cached.get("_modelo", modelo) == modelo)
             # nota dada com o resumo da vaga, e agora há a descrição completa: repontua
             and not (job.get("_desc_completa") and not cached.get("_desc_completa"))
         ):
-            por_indice[idx] = {**job, **{f: cached[f] for f in CACHE_SCORE_FIELDS},
+            por_indice[idx] = {**job, **{f: cached[f] for f in campos},
                                "_desc_completa": job.get("_desc_completa") or cached.get("_desc_completa")}
             new_cache[key] = _entrada(por_indice[idx])
         else:
@@ -661,14 +735,14 @@ def completar_descricoes_bebee(jobs: list[dict], workers: int = 2) -> int:
     return completadas
 
 
-def datar_vagas(jobs: list[dict], historico: dict, hoje: str) -> None:
+def datar_vagas(jobs: list[dict], historico: dict, hoje: str, prefixo: str = "") -> None:
     """Preenche `adicionada_em`: o dia em que a vaga apareceu pela 1ª vez (o
     painel marca como "nova" as do dia do relatório). A data fica no histórico
     em `_adicionada_em`; vaga que não está no histórico é de hoje. As que já
     estavam lá antes de 28/10/2026, quando a data passou a ser guardada, ficam
     sem data."""
     for job in jobs:
-        anterior = historico.get(normalize_key(job))
+        anterior = historico.get(prefixo + normalize_key(job))
         job["adicionada_em"] = anterior.get("_adicionada_em", "") if anterior is not None else hoje
 
 
@@ -720,7 +794,8 @@ def _apagar_relatorios_antigos(out_dir: Path) -> None:
     O histórico de notas fica no historico.json, então nada se perde."""
     hoje = dt.date.today().isoformat()
     apagados = 0
-    for padrao in ("vagas_triadas_*.csv", "vagas_triadas_*.xlsx", "novas_*.csv", "lacunas_*.csv"):
+    for padrao in ("vagas_triadas_*.csv", "vagas_triadas_*.xlsx", "vagas_intl_*.csv", "vagas_intl_*.xlsx",
+                   "novas_*.csv", "lacunas_*.csv"):
         for p in out_dir.glob(padrao):
             if hoje in p.name:
                 continue
@@ -767,6 +842,20 @@ def main():
             "e cole o texto do seu currículo (o cv.txt fica fora do git)."
         )
     cv_text = cv_path.read_text(encoding="utf-8")
+    # Perfil 2: o cv_intl.txt pode ser provisório (marcado no topo com
+    # "# TEMPORÁRIO"); a marca não vai pro Jev, mas aparece no relatório
+    cv_temporario = cv_text.lstrip().upper().startswith("# TEMPOR")
+    if cv_temporario:
+        cv_text = "\n".join(l for l in cv_text.splitlines() if not l.startswith("#")).strip()
+        print(f"  [aviso] {cv_path} é um CV TEMPORÁRIO — as notas estão calibradas contra ele.",
+              file=sys.stderr)
+
+    # Perfil 2 (config_intl.yaml, perfil: intl): histórico, coleta e relatório
+    # próprios, pra nota de um perfil nunca aparecer no outro
+    perfil = config.get("perfil") or ""
+    intl = perfil == perfil_intl.PERFIL
+    sufixo = f"_{perfil}" if perfil else ""
+    prefixo = f"{perfil}:" if perfil else ""
 
     if args.mock:
         client = MockJevClient(model=config.get("jev_model", "jev-mock"))
@@ -802,15 +891,15 @@ def main():
 
     # O histórico do modo --mock fica separado, pra notas simuladas nunca
     # contaminarem as reais.
-    cache_path = out_dir / ("historico_mock.json" if args.mock else "historico.json")
+    cache_path = out_dir / (f"historico_mock{sufixo}.json" if args.mock else f"historico{sufixo}.json")
     # com --no-cache as notas são ignoradas, mas a data em que cada vaga
     # apareceu continua valendo
     historico = load_cache(cache_path)
     cache = {} if args.no_cache else historico
-    datar_vagas(jobs, historico, dt.date.today().isoformat())
+    datar_vagas(jobs, historico, dt.date.today().isoformat(), prefixo=prefixo)
 
     preferencias = carregar_preferencias(config)
-    questions = build_questions(com_preferencias=bool(preferencias))
+    questions = perfil_intl.build_questions_intl() if intl else build_questions(com_preferencias=bool(preferencias))
     versao = scoring_version(cv_text, preferencias, questions)
 
     if config.get("sources", {}).get("bebee", {}).get("enabled"):
@@ -828,7 +917,7 @@ def main():
               file=sys.stderr)
 
     # vagas completas (com descrição) desta coleta — usadas pelo calibrar.py e pelo kit.py
-    coletadas_path = out_dir / "vagas_coletadas.json"
+    coletadas_path = out_dir / f"vagas_coletadas{sufixo}.json"
     coletadas_path.write_text(json.dumps(jobs, ensure_ascii=False), encoding="utf-8")
     if args.collect_only:
         print(f"Vagas salvas em {coletadas_path} (--collect-only: sem pontuação).")
@@ -846,12 +935,15 @@ def main():
         versao=versao,
         workers=config.get("jev_workers", 1),
         modelo=client.model,
+        campos=perfil_intl.CACHE_SCORE_FIELDS_INTL if intl else None,
+        prefixo=prefixo,
     )
     save_cache(cache_path, new_cache)
     print(f"  {pontuadas} vagas novas pontuadas, {reaproveitadas} reaproveitadas do histórico.")
 
     min_score = config.get("min_score", 0)
-    results = [ajustar_recomendacao(r) for r in results if r["nota_fit"] >= min_score]
+    ajustar = perfil_intl.ajustar_recomendacao_intl if intl else ajustar_recomendacao
+    results = [ajustar(r) for r in results if r["nota_fit"] >= min_score]
     results.sort(key=lambda r: (RECOMENDACAO_ORDEM.get(r["recomendacao"], 9), -r["nota_fit"]))
     marcar_idade(results, dt.date.today())
 
@@ -860,10 +952,12 @@ def main():
     # "novo", então aí não avisa.
     if cache and not args.no_cache and not args.mock:
         from novidades import salvar_e_avisar
-        novas = [r for r in results if normalize_key(r) not in cache]
-        salvar_e_avisar(novas, out_dir, config)
+        novas = [r for r in results if prefixo + normalize_key(r) not in cache]
+        salvar_e_avisar(novas, out_dir, config, nome=f"novas{sufixo}",
+                        titulo_aviso="Radar internacional" if intl else "Radar")
 
-    out_path = out_dir / f"vagas_triadas_{dt.date.today().isoformat()}.csv"
+    relatorio = "vagas_intl" if intl else "vagas_triadas"
+    out_path = out_dir / f"{relatorio}_{dt.date.today().isoformat()}.csv"
 
     columns = [
         "recomendacao",
@@ -887,6 +981,12 @@ def main():
         "ajuste",
         "alerta",
     ]
+    if intl:
+        columns[columns.index("trilha") + 1:columns.index("trilha") + 1] = [
+            "elegibilidade", "ingles_exigido", "gap_qual", "tipo_empresa"]
+        columns = ["perfil"] + columns + ["cv_usado"]
+        for r in results:
+            r["cv_usado"] = f"TEMPORÁRIO ({cv_path.name})" if cv_temporario else cv_path.name
     with out_path.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
@@ -895,7 +995,7 @@ def main():
 
     xlsx_path = out_path.with_suffix(".xlsx")
     try:
-        write_xlsx(results, xlsx_path)
+        write_xlsx(results, xlsx_path, intl=intl)
     except PermissionError:
         # acontece quando a planilha anterior do mesmo dia está aberta no Excel
         print(f"  [aviso] não consegui salvar {xlsx_path} — feche o arquivo no Excel e rode "

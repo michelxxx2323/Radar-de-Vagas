@@ -23,7 +23,7 @@ import time
 
 import requests
 
-from ._util import strip_html, title_matches
+from ._util import aceita_brasil, strip_html, title_matches
 
 WORKABLE_URL = "https://jobs.workable.com/api/v1/jobs"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-fit-screener/1.0)", "Accept": "application/json"}
@@ -47,23 +47,52 @@ def _to_job(j: dict) -> dict:
     }
 
 
+def _aceita_brasil(j: dict) -> bool:
+    """Perfil 2 (busca sem país): vaga remota cujo local aceita Brasil/LATAM/
+    anywhere, ou sem local e com a descrição dizendo que aceita."""
+    if j.get("workplace") != "remote":
+        return False
+    loc = j.get("location") or {}
+    local = " ".join(x for x in (loc.get("city"), loc.get("countryName")) if x)
+    texto = " ".join(p for p in (j.get("description"), j.get("requirementsSection")) if p)
+    return aceita_brasil(local, strip_html(texto))
+
+
+def _get(params: dict, tentativas: int = 4):
+    """GET com espera quando o portal responde 429 (muitas buscas seguidas)."""
+    espera = 5
+    for i in range(tentativas):
+        resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
+        if resp.status_code != 429 or i == tentativas - 1:
+            return resp
+        time.sleep(espera)
+        espera *= 2
+    return resp
+
+
 def fetch_workable(term: str, location: str = "Brazil", limit: int = 60, term_filter=None,
-                   max_pages: int = 10) -> list[dict]:
+                   max_pages: int = 10, somente_aceita_brasil: bool = False) -> list[dict]:
+    """`location` vazio busca no mundo todo; com `somente_aceita_brasil` ficam
+    só as remotas que aceitam quem mora no Brasil (config_intl.yaml)."""
     jobs: list[dict] = []
     token = ""
     for _ in range(max_pages):  # termo amplo + filtro de título não pagina sem fim
         if len(jobs) >= limit:
             break
-        params = {"query": term, "location": location}
+        params = {"query": term}
+        if location:
+            params["location"] = location
         if token:
             params["pageToken"] = token
-        resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
+        resp = _get(params)
         resp.raise_for_status()
         payload = resp.json()
         for j in payload.get("jobs") or []:
             if j.get("state", "published") != "published":
                 continue
             if term_filter is not None and not title_matches(j.get("title", ""), term_filter):
+                continue
+            if somente_aceita_brasil and not _aceita_brasil(j):
                 continue
             jobs.append(_to_job(j))
         token = payload.get("nextPageToken") or ""

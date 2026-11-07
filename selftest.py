@@ -1680,6 +1680,97 @@ def test_painel_coletores():
     print("OK  test_painel_coletores")
 
 
+def test_fontes_intl_ajustes():
+    """Ajustes do Michel nas fontes do Perfil 2 (07/11/2026): Workable por
+    empresa, busca agregada com 8 termos, WWR sem suporte, GTM Daily com
+    ferramentas e Himalayas pelos campos estruturados."""
+    import yaml as _yaml
+
+    import screen
+    from collectors import gtmdaily, himalayas, workable_contas
+
+    # Workable por conta: a mesma vaga vem uma vez por país
+    desc = "<p>Remote role.</p>"
+    widget = {"name": "Hire Overseas", "jobs": [
+        {"title": "E-Commerce Operations Specialist (BBS904)", "shortcode": "AA1", "telecommuting": True,
+         "url": "https://apply.workable.com/j/AA1", "published_on": "2026-11-01", "country": "Philippines",
+         "locations": [{"country": "Philippines"}], "description": desc},
+        {"title": "E-Commerce Operations Specialist (BBS904)", "shortcode": "AA1", "telecommuting": True,
+         "url": "https://apply.workable.com/j/AA1", "published_on": "2026-11-01", "country": "Brazil",
+         "locations": [{"country": "Brazil"}], "description": desc},
+        {"title": "Operations Manager (BBS898)", "shortcode": "BB2", "telecommuting": True,
+         "url": "https://apply.workable.com/j/BB2", "country": "Philippines",
+         "locations": [{"country": "Philippines"}], "description": desc},
+        {"title": "Cold Caller (BBS902)", "shortcode": "CC3", "telecommuting": True, "country": "Brazil",
+         "locations": [{"country": "Brazil"}], "description": desc},
+    ]}
+    with patch("collectors.workable_contas.requests.get", return_value=_FakeResp(widget)) as m:
+        jobs = workable_contas.fetch_workable_conta("hire-overseas", "Hire Overseas",
+                                                    term_filter=["operations", "ecommerce", "e-commerce"])
+    assert m.call_args.args[0] == "https://apply.workable.com/api/v1/widget/accounts/hire-overseas"
+    assert m.call_args.kwargs["params"] == {"details": "true"}
+    # só Filipinas fica de fora; o Cold Caller cai no filtro de título
+    assert [j["titulo"] for j in jobs] == ["E-Commerce Operations Specialist (BBS904)"]
+    assert jobs[0]["cidade"] == "Remoto — Philippines, Brazil" and jobs[0]["remoto"]
+    assert jobs[0]["link"] == "https://apply.workable.com/j/AA1" and jobs[0]["publicado_em"] == "2026-11-01"
+
+    # Himalayas: os campos estruturados decidem, a descrição não salva vaga restrita
+    assert not himalayas.elegivel({"locationRestrictions": [{"name": "United States"}],
+                                   "description": "We hire in Brazil too"})
+    assert himalayas.elegivel({"locationRestrictions": [{"name": "Brazil"}, {"name": "Mexico"}]})
+    assert himalayas.elegivel({"locationRestrictions": []})
+    assert not himalayas.elegivel({"timezoneRestrictions": [-8, -7, -6]})
+    assert himalayas.elegivel({"timezoneRestrictions": ["UTC-3", "UTC+1"]})
+    assert himalayas._fusos({"timezoneRestrictions": ["GMT-03:00", "America/Sao_Paulo", 1]}) == [-3.0, -3.0, 1.0]
+
+    # GTM Daily: vaga com Clay fica mesmo com título fora do filtro
+    def card(titulo, slug, tools, local="Remote, Brazil"):
+        return (f'<article><span class="absolute left-3 top-3">{local}</span><p class="text-xs">Full-time</p>'
+                f'<h3><a href="/jobs/{slug}?via=list">{titulo}</a></h3><p class="line-clamp-1">{tools}</p>'
+                f'<span class="truncate">Acme</span><span class="shrink-0 text-subtle">Today</span></article>')
+    lista = card("Marketing Technologist", "mkt-tech", "Clay, HubSpot") + card("Data Scientist", "ds", "Python")
+    pagina = ('<div><p>Beta</p><h1>Lifecycle Marketer</h1></div><dl><div><dt>Location</dt><dd>Remote, LATAM</dd></div>'
+              '<div><dt>Tools</dt><dd><span>n8n</span></dd></div></dl>'
+              '<article><section aria-labelledby="role-h"><p>LATAM.</p></section></article>')
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if url.endswith("/jobs"):
+            return _FakeResp(None, text=lista)
+        if url.endswith("/sitemap.xml"):
+            return _FakeResp(None, text="<urlset><url><loc>https://gtmdaily.com/jobs/lifecycle-marketer-beta-1</loc></url></urlset>")
+        if url.endswith("lifecycle-marketer-beta-1"):
+            return _FakeResp(None, text=pagina)
+        return _FakeResp(None, text='<article><section aria-labelledby="role-h"><p>Brazil ok.</p></section></article>')
+
+    with patch("collectors.gtmdaily.requests.get", side_effect=fake_get), patch("collectors.gtmdaily.time.sleep"), \
+            patch("collectors.gtmdaily._cache.obter", return_value=None), patch("collectors.gtmdaily._cache.guardar"), \
+            patch("collectors.gtmdaily._cache.descricao", side_effect=lambda chave, buscar: buscar()):
+        sem = gtmdaily.fetch_gtmdaily(term_filter=["gtm", "revops"], max_pages=1)
+        com = gtmdaily.fetch_gtmdaily(term_filter=["gtm", "revops"], max_pages=1, ferramentas=["Clay", "n8n", "Claude"])
+    assert sem == []
+    assert [j["titulo"] for j in com] == ["Marketing Technologist", "Lifecycle Marketer"]
+    assert not gtmdaily._usa_ferramenta("Claude Code", ["Clay"]) and gtmdaily._usa_ferramenta("clay, n8n", ["Clay"])
+
+    # o que o config_intl.yaml manda coletar
+    config = _yaml.safe_load((Path(__file__).parent / "config_intl.yaml").read_text(encoding="utf-8"))
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
+    # busca agregada desligada no Perfil 2; religada, fica com os 8 termos
+    assert not [r for f, r, _ in tarefas if f == "workable"]
+    config["sources"]["workable"]["enabled"] = True
+    tarefas.clear()
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
+    rotulos = [r for f, r, _ in tarefas if f == "workable"]
+    assert len(rotulos) == 8 and "Workable falhou para 'amazon'" in rotulos
+    assert any(f == "workable_contas" and "Hire Overseas" in r for f, r, _ in tarefas)
+    wwr = config["sources"]["weworkremotely"]["categories"]
+    assert wwr == ["remote-sales-and-marketing-jobs", "remote-management-and-finance-jobs", "remote-product-jobs"]
+    assert config["sources"]["gtmdaily"]["ferramentas"] == ["Clay", "n8n", "Claude"]
+    print("OK  test_fontes_intl_ajustes")
+
+
 def test_coletores_pme_e_gtmdaily():
     """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
     from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
@@ -1816,4 +1907,5 @@ if __name__ == "__main__":
     test_painel_perfil_intl()
     test_coletores_pme_e_gtmdaily()
     test_painel_coletores()
+    test_fontes_intl_ajustes()
     print("\nTodos os testes offline passaram.")

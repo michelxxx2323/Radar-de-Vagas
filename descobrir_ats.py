@@ -40,6 +40,7 @@ PELA_URL = [
     (r"\.jobs\.personio\.(de|com)", "Personio", "sources.personio.empresas (id = subdomínio)"),
     (r"\.breezy\.hr", "Breezy HR", "sources.breezy.empresas (id = subdomínio)"),
     (r"\.pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas (id = subdomínio)"),
+    (r"apply\.workable\.com", "Workable (conta)", "sources.workable_contas.empresas (id = conta, o trecho depois de apply.workable.com/)"),
 ]
 # marcas de cada ATS no HTML, pra sites em domínio próprio da empresa
 PELO_HTML = [
@@ -55,6 +56,7 @@ PELO_HTML = [
     (r"jobs\.personio\.", "Personio", "sources.personio.empresas"),
     (r"breezy\.hr", "Breezy HR", "sources.breezy.empresas"),
     (r"pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas"),
+    (r"apply\.workable\.com", "Workable (conta)", "sources.workable_contas.empresas"),
     (r"eightfold", "Eightfold (não suportado)", "-"),
     (r"successfactors|sapsf", "SAP SuccessFactors (não suportado)", "-"),
     (r"recrut\.ai", "Recrut.ai (não suportado)", "-"),
@@ -102,6 +104,9 @@ def _probe(nome: str) -> tuple[str, list[str]]:
          lambda r: len(r.json()) if isinstance(r.json(), list) else None),
         ("pinpoint", f"https://{nome}.pinpointhq.com/postings.json",
          lambda r: len(r.json().get("data", []))),
+        # responde 200 até para conta inexistente: só conta se tiver vaga
+        ("workable_contas", f"https://apply.workable.com/api/v1/widget/accounts/{nome}",
+         lambda r: len(r.json().get("jobs") or []) or None),
     ]
     for ats, url, contar in testes:
         try:

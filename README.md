@@ -188,11 +188,13 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   `output/historico_intl.json` (chaves com prefixo `intl:`),
   `output/vagas_coletadas_intl.json`, `output/vagas_intl_<data>.csv/.xlsx` e
   `output/novas_intl_<data>.csv`. A nota de um perfil nunca aparece no outro.
-- **Fontes:** Remotive, We Work Remotely (5 categorias), Remote OK, Remote.io,
-  Himalayas, Jobicy, GTM Daily (vagas curadas de GTM engineering/RevOps),
-  Workable no mundo todo (só remotas que aceitam Brasil) e boards de empresas
-  estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio,
-  Breezy HR e Pinpoint; `descobrir_ats.py` já testa os quatro). Gupy, InHire, Shopee,
+- **Fontes:**
+  - Remotive, We Work Remotely (vendas e marketing, gestão e finanças, produto), Remote OK e Remote.io.
+  - Himalayas: o país e o fuso da própria vaga decidem antes do Jev.
+  - Jobicy.
+  - GTM Daily: todas as vagas pelo sitemap. Fica a vaga com título do perfil ou que cita Clay, n8n ou Claude.
+  - Workable por empresa (`workable_contas`, a API de widget do apply.workable.com, começando pela Hire Overseas), A busca agregada (jobs.workable.com) fica desligada, porque tomava 429 já na 1ª busca. Se for religada, usa 8 termos, 1 busca por vez e 2 s entre chamadas.
+  - Boards de empresas estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio, Breezy HR e Pinpoint). O `descobrir_ats.py` testa esses quatro e a conta do Workable. Gupy, InHire, Shopee,
   TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
 - **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,
   elegibilidade para o Brasil 20% e ausência de gap 15%, mais inglês exigido,

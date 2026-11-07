@@ -58,6 +58,7 @@ from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
 from collectors.workable import resetar_bloqueio as resetar_bloqueio_workable
+from collectors.workable_contas import fetch_workable_conta
 from collectors.workday import fetch_workday
 from collectors.workingnomads import fetch_workingnomads
 from collectors import _cache as desc_cache
@@ -384,7 +385,8 @@ def collect_jobs(config: dict) -> list[dict]:
     # ATSs de agências e empresas pequenas (fontes-vagas.md, 07/11/2026): uma
     # empresa por item, {empresa, id} com id = subdomínio no ATS
     for fonte, fn in (("recruitee", fetch_recruitee), ("personio", fetch_personio),
-                      ("breezy", fetch_breezy), ("pinpoint", fetch_pinpoint)):
+                      ("breezy", fetch_breezy), ("pinpoint", fetch_pinpoint),
+                      ("workable_contas", fetch_workable_conta)):
         if on(fonte):
             for emp in sources[fonte].get("empresas", []):
                 tarefa(fonte, f"{fonte} falhou para '{emp.get('empresa') or emp['id']}'",
@@ -399,7 +401,10 @@ def collect_jobs(config: dict) -> list[dict]:
         wk_limit = limit if company_limit is not None else wk.get("limit_per_term", 60)
         # remoto_global (config_intl.yaml): busca sem país e fica só com as
         # remotas que aceitam Brasil/LATAM/anywhere
-        for term in terms:
+        # a busca agregada não é feita para varredura: o bloco pode ter a lista
+        # `termos` própria ou `max_termos` (Perfil 2: 8 termos, 07/11/2026)
+        termos_wk = wk.get("termos") or (terms[:wk["max_termos"]] if wk.get("max_termos") else terms)
+        for term in termos_wk:
             tarefa("workable", f"Workable falhou para '{term}'",
                    lambda t=term: fetch_workable(
                        t, location=wk.get("location", "Brazil"), limit=wk_limit, term_filter=titulo_ok,
@@ -431,7 +436,8 @@ def collect_jobs(config: dict) -> list[dict]:
     # páginas da listagem e baixa a página só das que passam no título e local)
     if on("gtmdaily"):
         tarefa("gtmdaily", "GTM Daily falhou", lambda: fetch_gtmdaily(
-            term_filter=titulo_ok, max_pages=sources["gtmdaily"].get("max_pages", 15), limit=company_limit))
+            term_filter=titulo_ok, max_pages=sources["gtmdaily"].get("max_pages", 15), limit=company_limit,
+            ferramentas=sources["gtmdaily"].get("ferramentas")))
     if on("workingnomads"):
         tarefa("workingnomads", "Working Nomads falhou",
                lambda: fetch_workingnomads(term_filter=titulo_ok, limit=company_limit))

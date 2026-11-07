@@ -25,6 +25,7 @@ import json
 import re
 import sys
 import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -436,6 +437,7 @@ def collect_jobs(config: dict) -> list[dict]:
                lambda: fetch_workingnomads(term_filter=titulo_ok, limit=company_limit))
 
     limpar_boards()
+    _limpar_status_fontes()
     resetar_bloqueio_workable()
     resultados = _rodar_tarefas(tarefas, config)
     # board/empresa sem nenhuma vaga publicada: o aviso de "fonte vazia" (no
@@ -480,6 +482,79 @@ def collect_jobs(config: dict) -> list[dict]:
 _SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1}
 _SIMULTANEAS_PADRAO = 4
 
+# Situação de cada fonte na última coleta, para a aba "Coletores" do painel
+# (07/11/2026): buscas, falhas, vagas trazidas e tempo gasto.
+_STATUS_FONTES: dict[str, dict] = {}
+_STATUS_LOCK = threading.Lock()
+
+
+def _limpar_status_fontes() -> None:
+    with _STATUS_LOCK:
+        _STATUS_FONTES.clear()
+
+
+def _anotar_fonte(fonte: str, vagas: int, segundos: float, erro: str = "") -> None:
+    with _STATUS_LOCK:
+        st = _STATUS_FONTES.setdefault(fonte, {"buscas": 0, "falhas": 0, "coletadas": 0, "segundos": 0.0,
+                                               "erros": []})
+        st["buscas"] += 1
+        st["coletadas"] += vagas
+        st["segundos"] += segundos
+        if erro:
+            st["falhas"] += 1
+            if len(st["erros"]) < 3 and erro not in st["erros"]:
+                st["erros"].append(erro[:300])
+
+
+# fonte por empresa sem nenhuma empresa na lista não é fonte quebrada
+_CHAVES_DE_LISTA = ("empresas", "boards", "sites", "tenants")
+
+
+def resumo_coleta(config: dict, jobs: list[dict], inicio: dt.datetime, segundos: float) -> dict:
+    """Situação de cada fonte do config nesta coleta (output/coleta[_intl].json,
+    que o sincronizar.py sobe para a aba "Coletores").
+
+    status: ok | parcial (algumas buscas falharam) | vazia (nenhuma vaga, sem
+    erro) | erro (todas as buscas falharam) | sem_lista (fonte por empresa com a
+    lista vazia) | desligada."""
+    unicas = Counter(j["fonte"] for j in jobs)
+    zerados: dict[str, list[str]] = {}
+    for fonte, board, motivo in sorted(boards_zerados()):
+        zerados.setdefault(fonte, []).append(f"{board}: {motivo}")
+    with _STATUS_LOCK:
+        status = {f: dict(st) for f, st in _STATUS_FONTES.items()}
+    fontes = []
+    for fonte, cfg in (config.get("sources") or {}).items():
+        cfg = cfg or {}
+        st = status.get(fonte, {})
+        buscas, falhas, coletadas = st.get("buscas", 0), st.get("falhas", 0), st.get("coletadas", 0)
+        sem_lista = any(k in cfg and not cfg[k] for k in _CHAVES_DE_LISTA)
+        if not cfg.get("enabled"):
+            situacao = "desligada"
+        elif sem_lista and not buscas:
+            situacao = "sem_lista"
+        elif buscas and falhas == buscas:
+            situacao = "erro"
+        elif not coletadas:
+            situacao = "vazia"
+        elif falhas:
+            situacao = "parcial"
+        else:
+            situacao = "ok"
+        fontes.append({"fonte": fonte, "status": situacao, "buscas": buscas, "falhas": falhas,
+                       "coletadas": coletadas, "unicas": unicas.get(fonte, 0),
+                       "segundos": round(st.get("segundos", 0.0), 1), "erros": st.get("erros", []),
+                       "boards_zerados": zerados.get(fonte, [])})
+    return {"perfil": config.get("perfil") or "br", "inicio": inicio.isoformat(timespec="seconds"),
+            "duracao_s": round(segundos), "vagas_unicas": len(jobs), "etapa": "coleta", "fontes": fontes}
+
+
+def _gravar_coleta(path: Path, coleta: dict) -> None:
+    try:
+        path.write_text(json.dumps(coleta, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as e:  # o resumo é extra; a rodada não pode cair por ele
+        print(f"  [aviso] não consegui salvar {path.name} ({e}).", file=sys.stderr)
+
 
 def _rodar_tarefas(tarefas: list, config: dict) -> list:
     """Roda as tarefas de coleta em paralelo e devolve os resultados na ordem
@@ -491,11 +566,15 @@ def _rodar_tarefas(tarefas: list, config: dict) -> list:
 
     def _rodar(fonte: str, rotulo: str, fn) -> list:
         with limites[fonte]:
+            t0 = time.monotonic()
             try:
-                return fn() or []
+                achadas = fn() or []
             except Exception as e:  # noqa: BLE001
                 print(f"  [aviso] {rotulo}: {e}", file=sys.stderr)
+                _anotar_fonte(fonte, 0, time.monotonic() - t0, f"{rotulo}: {e}")
                 return []
+            _anotar_fonte(fonte, len(achadas), time.monotonic() - t0)
+            return achadas
 
     resultados: list = [[] for _ in tarefas]
     total = len(tarefas)
@@ -895,7 +974,13 @@ def main():
     desc_cache.carregar(desc_cache_path)
 
     print("Coletando vagas...")
+    inicio, t0 = dt.datetime.now().astimezone(), time.monotonic()
     jobs = collect_jobs(config)
+    # situação de cada fonte (aba "Coletores" do painel); gravada já aqui para
+    # o painel mostrar a coleta mesmo se a pontuação cair depois
+    coleta = resumo_coleta(config, jobs, inicio, time.monotonic() - t0)
+    coleta_path = out_dir / (f"coleta_mock{sufixo}.json" if args.mock else f"coleta{sufixo}.json")
+    _gravar_coleta(coleta_path, coleta)
     print(f"  {len(jobs)} vagas únicas coletadas.")
     por_fonte = Counter(j["fonte"] for j in jobs)
     print("  por fonte: " + ", ".join(f"{f} {n}" for f, n in por_fonte.most_common()))
@@ -903,7 +988,7 @@ def main():
     # falta de vaga — sem este aviso, as vagas dela sumiam do relatório em silêncio
     for fonte, cfg in config.get("sources", {}).items():
         # fonte por empresa ainda sem nenhuma empresa na lista não é fonte quebrada
-        sem_empresas = any(k in cfg and not cfg[k] for k in ("empresas", "boards", "sites", "tenants"))
+        sem_empresas = any(k in cfg and not cfg[k] for k in _CHAVES_DE_LISTA)
         if cfg.get("enabled") and not por_fonte.get(fonte) and not sem_empresas:
             print(f"  [aviso] a fonte '{fonte}' está ligada mas não trouxe nenhuma vaga — "
                   f"provavelmente o site mudou ou bloqueou o acesso (ver collectors/{fonte}.py).",
@@ -944,6 +1029,8 @@ def main():
     coletadas_path = out_dir / f"vagas_coletadas{sufixo}.json"
     coletadas_path.write_text(json.dumps(jobs, ensure_ascii=False), encoding="utf-8")
     if args.collect_only:
+        coleta["etapa"] = "so_coleta"
+        _gravar_coleta(coleta_path, coleta)
         print(f"Vagas salvas em {coletadas_path} (--collect-only: sem pontuação).")
         return
 
@@ -1026,6 +1113,10 @@ def main():
               f"`python exportar_excel.py`.", file=sys.stderr)
 
     print(f"\nRelatório salvo em: {out_path} (e {xlsx_path.name}, com links clicáveis)")
+    coleta.update(etapa="concluida", relatorio=out_path.name, pontuadas=pontuadas,
+                  reaproveitadas=reaproveitadas, no_relatorio=len(results),
+                  concluida_em=dt.datetime.now().astimezone().isoformat(timespec="seconds"))
+    _gravar_coleta(coleta_path, coleta)
     _apagar_relatorios_antigos(out_dir)
     print("\nTop 10:")
     for r in results[:10]:

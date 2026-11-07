@@ -1308,9 +1308,18 @@ def test_nuvem_e_sincronizar():
             assert pc_cliente.get("/api/pc/estado", headers={"Authorization": "Bearer x"}).status_code == 401
             assert navegador.post("/api/login", json={"senha": "s3nha"}).status_code == 200
 
+            # situação dos coletores de cada perfil (aba "Coletores")
+            (out / "coleta.json").write_text(json.dumps({"perfil": "br", "etapa": "concluida",
+                                                         "fontes": [{"fonte": "gupy", "status": "ok"}]}))
+            (out / "coleta_intl.json").write_text(json.dumps({"perfil": "intl", "etapa": "coleta",
+                                                              "fontes": [{"fonte": "workable", "status": "erro"}]}))
+            (out / "coleta_mock.json").write_text(json.dumps({"perfil": "mock"}))  # mock não sobe
+
             # 1ª rodada: sobe as vagas do dia ("nao_aplicar" fica de fora)
             assert sinc.sincronizar(config, nuvem) == {"vagas": 2, "candidaturas": 0}
             p = navegador.get("/api/painel").get_json()
+            assert sorted(p["coletores"]) == ["br", "intl"]
+            assert p["coletores"]["intl"]["fontes"][0] == {"fonte": "workable", "status": "erro"}
             assert [v["titulo"] for v in p["vagas"]] == ["Analista de RevOps", "Analista de Growth"]
             assert p["pc_visto_em"] and p["relatorio"] == "vagas_triadas_2026-01-01.csv"
             assert {v["perfil"] for v in p["vagas"]} == {"br"}
@@ -1628,6 +1637,49 @@ def test_painel_perfil_intl():
     print("OK  test_painel_perfil_intl")
 
 
+def test_painel_coletores():
+    """Aba "Coletores" (07/11/2026): o screen.py anota cada busca de cada fonte
+    e o resumo diz, por fonte do config, se deu certo na rodada."""
+    import datetime as _dt
+
+    import screen
+    from collectors._util import registrar_board
+
+    def quebra():
+        raise RuntimeError("429 Too Many Requests")
+
+    tarefas = [("remotive", "Remotive falhou para 'a'", lambda: [{"x": 1}, {"x": 2}]),
+               ("remotive", "Remotive falhou para 'b'", quebra),
+               ("workable", "Workable falhou para 'a'", quebra),
+               ("workable", "Workable falhou para 'b'", quebra),
+               ("jobicy", "Jobicy falhou", lambda: []),
+               ("himalayas", "Himalayas falhou", lambda: [{"x": 3}])]
+    screen._limpar_status_fontes()
+    screen.limpar_boards()
+    registrar_board("greenhouse", "figma", 0)
+    screen._rodar_tarefas(tarefas, {"collect_workers": 2})
+    config = {"perfil": "intl", "sources": {
+        "remotive": {"enabled": True}, "workable": {"enabled": True}, "jobicy": {"enabled": True},
+        "himalayas": {"enabled": True}, "recruitee": {"enabled": True, "empresas": []},
+        "greenhouse": {"enabled": True, "boards": ["figma"]}, "gupy": {"enabled": False}}}
+    jobs = [{"fonte": "himalayas"}, {"fonte": "remotive"}]
+    c = screen.resumo_coleta(config, jobs, _dt.datetime(2026, 11, 7, 7, 0), 190.4)
+    st = {f["fonte"]: f for f in c["fontes"]}
+    assert {f: v["status"] for f, v in st.items()} == {
+        "remotive": "parcial", "workable": "erro", "jobicy": "vazia", "himalayas": "ok",
+        "recruitee": "sem_lista", "greenhouse": "vazia", "gupy": "desligada"}
+    assert st["remotive"]["buscas"] == 2 and st["remotive"]["falhas"] == 1 and st["remotive"]["coletadas"] == 2
+    assert st["remotive"]["unicas"] == 1 and "429" in st["remotive"]["erros"][0]
+    assert st["workable"]["erros"] == ["Workable falhou para 'a': 429 Too Many Requests",
+                                       "Workable falhou para 'b': 429 Too Many Requests"]
+    assert st["greenhouse"]["boards_zerados"] == ["figma: 0 vagas publicadas"]
+    assert c["perfil"] == "intl" and c["duracao_s"] == 190 and c["vagas_unicas"] == 2 and c["etapa"] == "coleta"
+    screen.limpar_boards()
+    html = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'id: "coletores"' in html and "function abaColetores" in html
+    print("OK  test_painel_coletores")
+
+
 def test_coletores_pme_e_gtmdaily():
     """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
     from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
@@ -1763,4 +1815,5 @@ if __name__ == "__main__":
     test_intl_rodada_mock_separada()
     test_painel_perfil_intl()
     test_coletores_pme_e_gtmdaily()
+    test_painel_coletores()
     print("\nTodos os testes offline passaram.")

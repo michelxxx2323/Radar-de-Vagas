@@ -127,6 +127,11 @@
                        border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; resize: vertical; }
   .rascunho .acoes { margin-top: 8px; align-items: center; }
 
+  .coleta { margin-bottom: 22px; }
+  .coleta h2 { font-size: 16px; margin: 0 0 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .coleta .resumo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0 10px; }
+  .coleta td.detalhe { max-width: 420px; font-size: 12px; color: var(--muted); }
+  .coleta tr.st-erro td, .coleta tr.st-vazia td, .coleta tr.st-parcial td { background: var(--surface-2); }
   .funil { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .funil button { display: flex; flex-direction: column; align-items: flex-start; min-width: 110px;
                   padding: 10px 14px; border-radius: 10px; }
@@ -157,10 +162,10 @@
 <script>
 const STATUS = { enviada: "Enviada", entrevista: "Entrevista", oferta: "Oferta", recusada: "Recusada", encerrada: "Encerrada" };
 const ABAS = [{ id: "candidaturas", rotulo: "Candidaturas" }, { id: "vagas", rotulo: "Vagas de hoje" },
-              { id: "lacunas", rotulo: "Lacunas" }];
+              { id: "lacunas", rotulo: "Lacunas" }, { id: "coletores", rotulo: "Coletores" }];
 
 let dados = { vagas: [], candidaturas: [], relatorio: "", pc_visto_em: "", lacunas: {}, lacunas_revisao: {},
-              descartes: [], motivos_descarte: [] };
+              descartes: [], motivos_descarte: [], coletores: {} };
 let filtroLacunas = { ver: "provaveis" };
 // linha aberta na aba Lacunas: { termo, modo: "tenho" | "exemplos", nota }
 let lacunaAberta = null;
@@ -329,6 +334,7 @@ function desenharAbas() {
     candidaturas: cand(["enviada", "entrevista", "oferta"]).length,
     vagas: dados.vagas.filter(v => v.recomendacao === "aplicar_agora" && !v.status && !v.descartada).length,
     lacunas: suspeitosLacunas().filter(l => !revisao(l.termo)).length,
+    coletores: Object.values(dados.coletores || {}).reduce((n, c) => n + problemas(c).length, 0),
   };
   document.getElementById("abas").innerHTML = ABAS.map(a => `
     <button class="${a.id === aba ? "ativa" : ""}" data-aba="${a.id}">${a.rotulo}
@@ -340,7 +346,8 @@ document.getElementById("abas").addEventListener("click", e => {
 });
 
 function desenhar() {
-  document.getElementById("conteudo").innerHTML = aba === "vagas" ? abaVagas() : aba === "lacunas" ? abaLacunas() : abaCandidaturas();
+  document.getElementById("conteudo").innerHTML = aba === "vagas" ? abaVagas() : aba === "lacunas" ? abaLacunas()
+    : aba === "coletores" ? abaColetores() : abaCandidaturas();
 }
 
 // --- Lacunas (lacunas.py, calculado pelo PC a cada rodada) -----------------------
@@ -417,6 +424,75 @@ function linhaLacuna(l, max) {
     <td class="cv sub">${l.no_cv ? esc(l.no_cv) : r && r.avaliacao === "tenho" ? `não aparece no cv.txt, mas você tem${r.nota ? `: ${esc(r.nota)}` : ""}`
       : `<span style="color:var(--alerta)">não aparece</span>`}</td>
     <td style="white-space:nowrap">${avaliacao}</td></tr>${extra}`;
+}
+
+// --- Coletores (screen.py grava output/coleta[_intl].json; o sincronizar.py sobe) ---
+const SITUACAO = {
+  ok: ["OK", "s-oferta", "Trouxe vagas e nenhuma busca falhou."],
+  parcial: ["Parcial", "atraso", "Trouxe vagas, mas parte das buscas falhou."],
+  vazia: ["Vazia", "atraso", "Ligada, sem erro, mas não trouxe nenhuma vaga: o site pode ter mudado."],
+  erro: ["Erro", "s-recusada", "Todas as buscas falharam (bloqueio, site fora do ar ou mudança no site)."],
+  sem_lista: ["Sem lista", "s-encerrada", "Fonte por empresa ainda sem nenhuma empresa no config."],
+  desligada: ["Desligada", "s-encerrada", "Desligada no config."],
+};
+const ORDEM_SITUACAO = ["erro", "vazia", "parcial", "ok", "sem_lista", "desligada"];
+const NOME_FONTE = { weworkremotely: "We Work Remotely", remoteok: "Remote OK", remoteio: "Remote.io",
+  gtmdaily: "GTM Daily", workingnomads: "Working Nomads", mercadolivre: "Mercado Livre", smartrecruiters: "SmartRecruiters",
+  didi: "DiDi/99", tiktok: "TikTok", inhire: "InHire", bebee: "beBee" };
+function nomeFonte(f) { return NOME_FONTE[f] || f.charAt(0).toUpperCase() + f.slice(1); }
+function problemas(c) { return (c.fontes || []).filter(f => ["erro", "vazia", "parcial"].includes(f.status)); }
+function tempo(seg) { seg = Math.round(Number(seg) || 0); return seg < 60 ? `${seg} s` : `${Math.floor(seg / 60)} min${seg % 60 ? ` ${seg % 60} s` : ""}`; }
+function chipSituacao(st) {
+  const [rot, cls, dica] = SITUACAO[st] || [st, "s-encerrada", ""];
+  return `<span class="chip ${cls}" style="margin:0" title="${esc(dica)}">${esc(rot)}</span>`;
+}
+function abaColetores() {
+  const C = dados.coletores || {};
+  const perfis = ["br", "intl"].filter(p => C[p]);
+  if (!perfis.length) return `<div class="vazio">A situação dos coletores chega depois da próxima rodada diária, quando o PC roda o sincronizar.py.</div>`;
+  const explica = `<p class="sub" style="margin:0 0 16px;max-width:880px">Cada linha é uma fonte do config do perfil, na última rodada.
+    <strong>Coletadas</strong> é o que a fonte trouxe; <strong>no relatório</strong> é o que sobrou depois de tirar repetidas e
+    vagas fora do perfil (título, local). Uma fonte <strong>Vazia</strong> ou com <strong>Erro</strong> por mais de um dia
+    quase sempre é site que mudou ou bloqueou.</p>`;
+  return explica + perfis.map(p => blocoColeta(p, C[p])).join("");
+}
+function blocoColeta(p, c) {
+  const inicio = c.inicio ? new Date(c.inicio) : null;
+  const dias = inicio ? diasNum(inicio.toLocaleDateString("sv-SE")) : null;
+  const quando = inicio ? `${inicio.toLocaleDateString("pt-BR")} às ${inicio.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "–";
+  const etapa = c.etapa === "concluida" ? `<span class="chip s-oferta" style="margin:0">Relatório gerado</span>
+      <span class="sub">${c.no_relatorio ?? "–"} vagas acima da nota mínima · ${c.pontuadas ?? 0} pontuadas agora, ${c.reaproveitadas ?? 0} do histórico</span>`
+    : c.etapa === "so_coleta" ? `<span class="chip s-encerrada" style="margin:0">Só coleta (--collect-only)</span>`
+    : `<span class="chip s-recusada" style="margin:0" title="A coleta terminou, mas o relatório não foi gerado: veja o output/run_diario.log">Parou depois da coleta</span>`;
+  const contas = {};
+  (c.fontes || []).forEach(f => { contas[f.status] = (contas[f.status] || 0) + 1; });
+  const resumo = ORDEM_SITUACAO.filter(s => contas[s] && s !== "desligada")
+    .map(s => `${chipSituacao(s)} <span class="sub">${contas[s]}</span>`).join(" ");
+  const ativas = (c.fontes || []).filter(f => f.status !== "desligada")
+    .sort((a, b) => ORDEM_SITUACAO.indexOf(a.status) - ORDEM_SITUACAO.indexOf(b.status) || b.coletadas - a.coletadas);
+  const desligadas = (c.fontes || []).filter(f => f.status === "desligada").map(f => nomeFonte(f.fonte));
+  const linhas = ativas.map(f => {
+    const detalhe = [...(f.erros || []), ...(f.boards_zerados || [])];
+    return `<tr class="perfil-${p} st-${esc(f.status)}">
+      <td><strong>${esc(nomeFonte(f.fonte))}</strong></td>
+      <td>${chipSituacao(f.status)}</td>
+      <td class="num">${f.coletadas}</td>
+      <td class="num">${f.unicas}</td>
+      <td class="num">${f.buscas}${f.falhas ? ` <span style="color:var(--alerta)">(${f.falhas} falha${f.falhas > 1 ? "s" : ""})</span>` : ""}</td>
+      <td class="num sub">${f.buscas ? tempo(f.segundos) : "–"}</td>
+      <td class="detalhe">${detalhe.length ? detalhe.map(esc).join("<br>") : f.status === "sem_lista" ? "nenhuma empresa na lista do config" : ""}</td></tr>`;
+  }).join("");
+  return `<section class="coleta">
+    <h2>${chipPerfil(p)} ${p === "intl" ? "Perfil 2 · Internacional" : "Perfil 1 · Brasil"}</h2>
+    <div class="sub">Rodada de ${quando} · coleta em ${tempo(c.duracao_s)} · ${c.vagas_unicas ?? 0} vagas únicas${
+      dias ? ` · <span style="color:var(--atraso);font-weight:600">há ${dias} dia${dias > 1 ? "s" : ""}: a rodada de hoje ainda não chegou</span>` : ""}</div>
+    <div class="resumo">${etapa}</div>
+    <div class="resumo">${resumo}</div>
+    <div class="rolagem"><table class="tabela"><thead><tr><th>Fonte</th><th>Situação</th><th class="num">Coletadas</th>
+      <th class="num">No relatório</th><th class="num">Buscas</th><th class="num" title="Soma do tempo das buscas desta fonte (elas rodam em paralelo)">Tempo</th><th>Detalhe</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>
+    ${desligadas.length ? `<p class="sub" style="margin:8px 0 0">Desligadas neste perfil: ${desligadas.map(esc).join(", ")}</p>` : ""}
+  </section>`;
 }
 
 // --- Candidaturas ------------------------------------------------------------

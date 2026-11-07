@@ -143,6 +143,12 @@ Um painel na web (pasta `web/`, publicada na Vercel, com senha) tem três abas:
 - **Lacunas**: o mapa do `lacunas.py` — o que as vagas boas pedem e o seu CV
   não mostra, com trechos de vagas reais. Em cada termo você marca "Tenho
   isso" (com onde usou; entra na lista "Para pôr no CV") ou "É lacuna mesmo".
+- **Coletores**: uma tabela por perfil com cada fonte do config na última
+  rodada: OK, Parcial (parte das buscas falhou), Vazia, Erro, Sem lista ou
+  Desligada, com vagas coletadas, vagas no relatório, buscas, tempo e o erro.
+  Também mostra se o relatório foi gerado e avisa quando a rodada do dia não
+  chegou. Os dados vêm de `output/coleta.json` e `output/coleta_intl.json`,
+  gravados pelo `screen.py`.
 
 O `sincronizar.py` guarda no PC uma cópia dos descartes
 (`output/descartes.json`) e da avaliação das lacunas

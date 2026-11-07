@@ -21,9 +21,16 @@ decide. Card com local claramente de fora ("Remote, New York, NY",
 página (fica no cache de descrições) e só fica se a descrição aceitar Brasil.
 
 A listagem só vai até a página 5 (da 6 em diante o site devolve a 5 de novo).
-As vagas que não couberam nela vêm do /sitemap.xml: filtra pelo título no
-slug, baixa a página da vaga (local, salário e ferramentas ficam no <dl> do
-quadro lateral) e guarda no cache.
+As vagas que não couberam nela vêm do /sitemap.xml: baixa a página da vaga
+(local, salário e ferramentas ficam no <dl> do quadro lateral) e guarda no
+cache, então só a 1ª rodada (ou uma vaga nova) baixa a página.
+
+Filtros do site (role=gtm-engineer, tool=Clay, arrangement=remote) não servem:
+combinar dois é URL com 2 parâmetros, que o robots.txt proíbe, e sem o
+arrangement cada filtro só mostra a 1ª página (a paginação seria o 2º
+parâmetro). Por isso o coletor lê todas as vagas e filtra aqui: fica a vaga com
+título do perfil (title_keywords) OU com uma das `ferramentas` (Clay, n8n,
+Claude...), e o local decide o remoto que aceita Brasil.
 """
 from __future__ import annotations
 
@@ -152,8 +159,18 @@ def _get(url: str, params: dict | None = None):
     return resp
 
 
+def _usa_ferramenta(ferramentas_vaga: str, ferramentas: list[str] | None) -> bool:
+    if not ferramentas or not ferramentas_vaga:
+        return False
+    texto = _fold(ferramentas_vaga)
+    return any(re.search(rf"\b{re.escape(_fold(f))}\b", texto) for f in ferramentas)
+
+
 def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = None,
-                   pausa: float = 1.0, usar_sitemap: bool = True) -> list[dict]:
+                   pausa: float = 1.0, usar_sitemap: bool = True,
+                   ferramentas: list[str] | None = None) -> list[dict]:
+    """`ferramentas`: vaga que cita uma delas fica mesmo com título fora do
+    term_filter (ex.: "Marketing Technologist" com Clay)."""
     cards: list[dict] = []
     vistos: set[str] = set()
     for pagina in range(1, max_pages + 1):
@@ -173,9 +190,11 @@ def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = No
             faltam = []
         for link in faltam:
             slug = link.rsplit("/", 1)[-1]
-            # o slug é "<título>-<empresa>-<hash>": filtra pelo título antes de baixar
-            if term_filter is not None and not (title_matches(slug, term_filter)
-                                                or title_matches(slug.replace("-", " "), term_filter)):
+            # o slug é "<título>-<empresa>-<hash>": sem filtro por ferramenta,
+            # filtra pelo título antes de baixar; com ele, precisa da página
+            # (as ferramentas só aparecem nela), que fica no cache
+            if not ferramentas and term_filter is not None and not (
+                    title_matches(slug, term_filter) or title_matches(slug.replace("-", " "), term_filter)):
                 continue
             det = _cache.obter(f"gtmdaily-pagina:{link}")
             if det is None:
@@ -198,7 +217,8 @@ def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = No
     for c in cards:
         if limit is not None and len(jobs) >= limit:
             break
-        if term_filter is not None and not title_matches(c["titulo"], term_filter):
+        if term_filter is not None and not title_matches(c["titulo"], term_filter) \
+                and not _usa_ferramenta(c["ferramentas"], ferramentas):
             continue
         if _local_de_fora(c["local"]):
             continue

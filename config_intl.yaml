@@ -167,8 +167,8 @@ sources:
       - "remote-sales-and-marketing-jobs"
       - "remote-management-and-finance-jobs"
       - "remote-product-jobs"
-      - "remote-customer-support-jobs"
-      - "all-other-remote-jobs"
+      # 07/11/2026: saíram remote-customer-support-jobs e all-other-remote-jobs
+      # (vagas de suporte que o filtro de título não pegava)
 
   remoteok:
     enabled: true
@@ -198,7 +198,9 @@ sources:
   # GTM Daily: vagas curadas de GTM engineering/RevOps/ops (fontes-vagas.md, nº 1)
   gtmdaily:
     enabled: true
-    max_pages: 15            # 20 vagas por página
+    max_pages: 15            # 20 vagas por página (o site para na 5; o resto vem do sitemap)
+    # vaga que cita uma destas fica mesmo com título fora do title_keywords
+    ferramentas: ["Clay", "n8n", "Claude"]
 
   # ATSs de agências e empresas pequenas (fontes-vagas.md, seção 5). Cada item:
   # {empresa: "Nome", id: "<subdomínio no ATS>"}. Só empresas confirmadas pelo
@@ -216,12 +218,26 @@ sources:
     enabled: true
     empresas: []
 
-  # Workable: busca no mundo todo e fica com as remotas que aceitam Brasil
+  # Workable do jeito certo: o board de cada empresa da lista (API de widget do
+  # apply.workable.com). id = conta, o trecho depois de apply.workable.com/.
+  # Confirme a conta com o descobrir_ats.py: a API responde 200 até para conta
+  # errada, só a contagem de vagas confirma.
+  workable_contas:
+    enabled: true
+    empresas:
+      - {empresa: "Hire Overseas", id: "hire-overseas"}   # 109 vagas em 07/11/2026
+
+  # Busca agregada do Workable (jobs.workable.com): não é feita para varredura e
+  # bloqueou a rodada com 429 (07/11/2026). Fica só com 8 termos, 1 busca por
+  # vez, 2 s entre chamadas e espera no 429; as empresas boas vão para
+  # workable_contas.
   workable:
     enabled: true
     location: ""
     remoto_global: true
     limit_per_term: 60
+    termos: ["marketplace operations", "ecommerce manager", "amazon", "revenue operations",
+             "gtm engineer", "growth operations", "marketing operations", "ai automation"]
 
   # --- boards de empresa (ATS) ---
   # Só empresas estrangeiras, e só boards confirmados pelo descobrir_ats.py.
@@ -292,7 +308,7 @@ dedup_ignora_codigos: true
 # presencial/híbrida no Brasil só fica se pagar em dólar ou vier de uma destas
 # fontes (aqui só têm empresa estrangeira)
 somente_remoto: true
-fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters",
+fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters", "workable_contas",
                      "recruitee", "personio", "breezy", "pinpoint"]
 
 limit_per_term: 15

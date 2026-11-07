@@ -69,6 +69,21 @@ def resetar_bloqueio() -> None:
     _BLOQUEADO.clear()
 
 
+# Intervalo mínimo entre duas chamadas ao portal, de qualquer busca (a busca já
+# roda com 1 worker; 07/11/2026)
+INTERVALO_S = 2.0
+_ULTIMA = [0.0]
+_ULTIMA_LOCK = threading.Lock()
+
+
+def _esperar_vez() -> None:
+    with _ULTIMA_LOCK:
+        falta = INTERVALO_S - (time.monotonic() - _ULTIMA[0])
+        if falta > 0:
+            time.sleep(falta)
+        _ULTIMA[0] = time.monotonic()
+
+
 def _get(params: dict, tentativas: int = 3):
     """GET com espera quando o portal responde 429 (muitas buscas seguidas).
     Respeita o Retry-After (até 60 s); sem ele, espera 15 s e 30 s."""
@@ -76,6 +91,7 @@ def _get(params: dict, tentativas: int = 3):
         raise requests.HTTPError("429 Too Many Requests (Workable bloqueou esta rodada; buscas seguintes puladas)")
     espera = 15
     for i in range(tentativas):
+        _esperar_vez()
         resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
         if resp.status_code != 429:
             return resp
@@ -116,5 +132,4 @@ def fetch_workable(term: str, location: str = "Brazil", limit: int = 60, term_fi
         token = payload.get("nextPageToken") or ""
         if not token or not payload.get("jobs"):
             break
-        time.sleep(2)  # portal público — sem martelar (0,5 s levava a 429)
     return jobs[:limit]

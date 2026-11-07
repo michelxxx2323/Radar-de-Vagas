@@ -10,12 +10,17 @@ pública e gratuita, sem chave. Usa a busca:
 (/jobs/api, 116 mil vagas, só as mais novas) quase não rendia: 1 vaga em 500.
 
 Cada vaga traz `locationRestrictions` (países aceitos; vazio = mundo todo),
-salário, senioridade e a descrição em HTML; por garantia ainda passa por
-aceita_brasil. Termos de uso: linkar a página da vaga no Himalayas.
+`timezoneRestrictions` (fusos aceitos, em horas de UTC; vazio = qualquer),
+salário, senioridade e a descrição em HTML. Os dois campos decidem antes do
+Jev (07/11/2026), sem depender da descrição: com restrição de país, fica só se
+a lista citar Brasil/LATAM/Américas; com restrição de fuso, só se algum fuso
+estiver entre UTC-5 e UTC-2 (o Brasil vai de -5 a -2). Termos de uso: linkar a
+página da vaga no Himalayas.
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 
 import requests
@@ -31,6 +36,44 @@ def _local(j: dict) -> str:
     restr = j.get("locationRestrictions") or []
     nomes = [r.get("name", "") if isinstance(r, dict) else str(r) for r in restr]
     return ", ".join(n for n in nomes if n) or "Worldwide"
+
+
+# fusos do Brasil (Acre -5 até Fernando de Noronha -2)
+FUSO_BR = (-5.0, -2.0)
+
+
+def _fusos(j: dict) -> list[float]:
+    """timezoneRestrictions como números: -3, "-3", "UTC-3", "GMT-03:00"..."""
+    fusos = []
+    for t in j.get("timezoneRestrictions") or []:
+        if isinstance(t, (int, float)):
+            fusos.append(float(t))
+            continue
+        texto = str(t)
+        if "/" in texto:  # nome IANA ("America/Sao_Paulo")
+            try:
+                from zoneinfo import ZoneInfo
+
+                fusos.append(dt.datetime.now(ZoneInfo(texto)).utcoffset().total_seconds() / 3600)
+            except Exception:  # noqa: BLE001 — fuso que não reconheço não decide nada
+                pass
+            continue
+        m = re.search(r"([-+\u2212]?)\s*(\d{1,2})(?::?(\d{2}))?", texto)
+        if m:
+            h = int(m.group(2)) + int(m.group(3) or 0) / 60
+            fusos.append(-h if m.group(1) in ("-", "\u2212") else h)
+    return fusos
+
+
+def elegivel(j: dict) -> bool:
+    """Decide pelos campos estruturados, sem ler a descrição."""
+    restr = j.get("locationRestrictions") or []
+    if restr and not aceita_brasil(_local(j)):
+        return False
+    fusos = _fusos(j)
+    if fusos and not any(FUSO_BR[0] <= f <= FUSO_BR[1] for f in fusos):
+        return False
+    return True
 
 
 def _data(valor) -> str:
@@ -62,10 +105,10 @@ def fetch_himalayas(term: str, country: str = "Brazil", term_filter=None, max_pa
             titulo = (j.get("title") or "").strip()
             if not titulo or (term_filter is not None and not title_matches(titulo, term_filter)):
                 continue
+            if not elegivel(j):
+                continue
             local = _local(j)
             descricao = strip_html(j.get("description") or j.get("excerpt") or "")
-            if not aceita_brasil(local, descricao):
-                continue
             jobs.append({
                 "id": f"himalayas:{j.get('guid') or j.get('applicationLink')}",
                 "fonte": "himalayas",

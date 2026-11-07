@@ -88,7 +88,7 @@ def vagas_do_relatorio(out_dir: Path) -> tuple[str, list[dict]]:
         for n, v in enumerate(linhas, 1):
             if v.get("recomendacao") not in ("aplicar_agora", "avaliar"):
                 continue
-            vagas.append({**{k: v.get(k, "") for k in CAMPOS_LISTA}, "perfil": perfil,
+            vagas.append({**{k: v.get(k, "") for k in CAMPOS_LISTA}, "perfil": perfil, "relatorio": relatorios[-1].name,
                           "n": ordem * 100_000 + n, "id": hashlib.md5(v["link"].encode()).hexdigest()[:12]})
     return nome, vagas
 

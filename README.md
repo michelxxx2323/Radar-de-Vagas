@@ -197,7 +197,7 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   máximo em `avaliar`. Vaga em dólar não tem problema de senioridade, a não
   ser que a própria vaga exija. Presencial/híbrida no Brasil só fica se for de
   empresa estrangeira ou pagar em dólar.
-- A tarefa agendada continua rodando só o Perfil 1.
+- A tarefa agendada (`rodar_diario.bat`) roda o Perfil 1 e, logo depois, o Perfil 2; o `sincronizar.py` sobe os dois relatórios juntos.
 - **Painel:** o `sincronizar.py` sobe também o último `vagas_intl_*.csv`; na aba
   "Vagas de hoje" há a coluna Perfil e o filtro Brasil / Internacional.
 

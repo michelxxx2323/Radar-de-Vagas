@@ -19,6 +19,11 @@ página da vaga no GTM Daily. Não há filtro de local na URL: o local do card
 decide. Card com local claramente de fora ("Remote, New York, NY",
 "San Francisco") cai antes de baixar a página; "Remote" sem país baixa a
 página (fica no cache de descrições) e só fica se a descrição aceitar Brasil.
+
+A listagem só vai até a página 5 (da 6 em diante o site devolve a 5 de novo).
+As vagas que não couberam nela vêm do /sitemap.xml: filtra pelo título no
+slug, baixa a página da vaga (local, salário e ferramentas ficam no <dl> do
+quadro lateral) e guarda no cache.
 """
 from __future__ import annotations
 
@@ -87,6 +92,51 @@ def ler_descricao(html: str) -> str:
     return strip_html(str(sec)) if sec else ""
 
 
+def ler_pagina_vaga(html: str) -> dict:
+    """Campos de uma página de vaga, para as vagas que só aparecem no sitemap.
+    O quadro lateral é um <dl> com <dt>Location</dt><dd>Remote, Brazil</dd>,
+    Pay, Type, Tools...; o título é o <h1> e a empresa o <p> logo acima dele."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    campos = {}
+    for dt_ in soup.select("dl dt"):
+        dd = dt_.find_next_sibling("dd")
+        if dd:
+            campos[dt_.get_text(" ", strip=True).lower()] = dd.get_text(", ", strip=True)
+    h1 = soup.find("h1")
+    empresa = h1.find_previous_sibling() if h1 else None
+    pay = campos.get("pay", "")
+    if pay.lower().startswith("not published"):
+        pay = ""
+    return {
+        "titulo": h1.get_text(" ", strip=True) if h1 else "",
+        "empresa": empresa.get_text(" ", strip=True) if empresa else "",
+        "local": campos.get("location", ""),
+        "pay": " · ".join(p for p in (pay, campos.get("type", "")) if p),
+        "ferramentas": campos.get("tools", ""),
+        "publicado": campos.get("originally posted", ""),
+        "descricao": ler_descricao(html),
+    }
+
+
+def _data_postada(texto: str) -> str:
+    """"Sep 25, 2026" -> "2026-09-25"."""
+    try:
+        return dt.datetime.strptime(texto.strip(), "%b %d, %Y").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def links_do_sitemap() -> list[str]:
+    """Todas as vagas do site. A listagem /jobs?page=N para na página 5 (pedir
+    a 6 ou a 15 devolve a 5 de novo, apesar do "Page 1 of 15" — visto em
+    07/11/2026), então as vagas mais antigas, como a da Wellhub, só aparecem
+    aqui (~255 em 07/11/2026)."""
+    xml = _get(BASE + "/sitemap.xml").text
+    return [BASE + "/jobs/" + s for s in re.findall(r"<loc>https://gtmdaily\.com/jobs/([^<?/]+)</loc>", xml)]
+
+
 def _local_de_fora(local: str) -> bool:
     """Card cujo local já diz que não aceita Brasil (não baixa a página)."""
     loc = _fold(local)
@@ -103,15 +153,45 @@ def _get(url: str, params: dict | None = None):
 
 
 def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = None,
-                   pausa: float = 1.0) -> list[dict]:
+                   pausa: float = 1.0, usar_sitemap: bool = True) -> list[dict]:
     cards: list[dict] = []
+    vistos: set[str] = set()
     for pagina in range(1, max_pages + 1):
         html = _get(BASE + "/jobs", {"page": pagina} if pagina > 1 else None).text
         lote, proxima = ler_cards(html)
-        cards.extend(lote)
-        if not proxima or not lote:
+        novos = [c for c in lote if c["link"] not in vistos]
+        vistos.update(c["link"] for c in novos)
+        cards.extend(novos)
+        if not proxima or not novos:  # a partir da 6ª o site repete a 5ª
             break
         time.sleep(pausa)  # site pequeno — sem martelar
+
+    if usar_sitemap:
+        try:
+            faltam = [u for u in links_do_sitemap() if u not in vistos]
+        except requests.RequestException:
+            faltam = []
+        for link in faltam:
+            slug = link.rsplit("/", 1)[-1]
+            # o slug é "<título>-<empresa>-<hash>": filtra pelo título antes de baixar
+            if term_filter is not None and not (title_matches(slug, term_filter)
+                                                or title_matches(slug.replace("-", " "), term_filter)):
+                continue
+            det = _cache.obter(f"gtmdaily-pagina:{link}")
+            if det is None:
+                try:
+                    det = ler_pagina_vaga(_get(link).text)
+                except requests.RequestException:
+                    continue
+                if det["titulo"]:
+                    _cache.guardar(f"gtmdaily-pagina:{link}", det)
+                time.sleep(pausa)
+            if not det.get("titulo"):
+                continue
+            vistos.add(link)
+            cards.append({"titulo": det["titulo"], "link": link, "local": det["local"], "pay": det["pay"],
+                          "ferramentas": det["ferramentas"], "empresa": det["empresa"], "idade": "",
+                          "publicado": det["publicado"], "descricao": det["descricao"]})
     registrar_board("gtmdaily", "gtmdaily", len(cards))
 
     jobs = []
@@ -129,7 +209,7 @@ def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = No
             except requests.RequestException:
                 return ""
 
-        descricao = _cache.descricao(f"gtmdaily:{c['link']}", baixar)
+        descricao = c.get("descricao") or _cache.descricao(f"gtmdaily:{c['link']}", baixar)
         if not aceita_brasil(c["local"], descricao) and not _LOCAL_BR.search(_fold(c["local"])):
             continue
         partes_pay = [p.strip() for p in c["pay"].split("·")]
@@ -147,7 +227,7 @@ def fetch_gtmdaily(term_filter=None, max_pages: int = 15, limit: int | None = No
             "remoto": "remote" in loc or "anywhere" in loc,
             "link": c["link"],
             "descricao": descricao,
-            "publicado_em": idade_para_data(c["idade"]),
+            "publicado_em": idade_para_data(c["idade"]) or _data_postada(c.get("publicado", "")),
             "salario": salario,
         })
     return jobs

@@ -34,14 +34,19 @@ import yaml
 from collectors.amazon import fetch_amazon
 from collectors.ashby import fetch_ashby
 from collectors.bebee import fetch_bebee
+from collectors.breezy import fetch_breezy
 from collectors.didi import fetch_didi
 from collectors.greenhouse import fetch_greenhouse
+from collectors.gtmdaily import fetch_gtmdaily
 from collectors.himalayas import fetch_himalayas
 from collectors.jobicy import fetch_jobicy
 from collectors.gupy import fetch_gupy, fetch_gupy_empresa
 from collectors.inhire import fetch_inhire
 from collectors.lever import fetch_lever
 from collectors.mercadolivre import fetch_mercadolivre
+from collectors.personio import fetch_personio
+from collectors.pinpoint import fetch_pinpoint
+from collectors.recruitee import fetch_recruitee
 from collectors.remoteio import fetch_remoteio
 from collectors.remoteok import fetch_remoteok
 from collectors.remotive import fetch_remotive
@@ -51,6 +56,7 @@ from collectors.teamtailor import fetch_teamtailor
 from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
+from collectors.workable import resetar_bloqueio as resetar_bloqueio_workable
 from collectors.workday import fetch_workday
 from collectors.workingnomads import fetch_workingnomads
 from collectors import _cache as desc_cache
@@ -374,6 +380,16 @@ def collect_jobs(config: dict) -> list[dict]:
             tarefa("teamtailor", f"Teamtailor falhou para '{site.get('empresa')}'",
                    lambda s=site: fetch_teamtailor(s["url"], s["empresa"], term_filter=titulo_ok, limit=company_limit))
 
+    # ATSs de agências e empresas pequenas (fontes-vagas.md, 07/11/2026): uma
+    # empresa por item, {empresa, id} com id = subdomínio no ATS
+    for fonte, fn in (("recruitee", fetch_recruitee), ("personio", fetch_personio),
+                      ("breezy", fetch_breezy), ("pinpoint", fetch_pinpoint)):
+        if on(fonte):
+            for emp in sources[fonte].get("empresas", []):
+                tarefa(fonte, f"{fonte} falhou para '{emp.get('empresa') or emp['id']}'",
+                       lambda e=emp, f=fn: f(e["id"], e.get("empresa", ""), term_filter=titulo_ok,
+                                             limit=company_limit))
+
     # Workable: busca por termo no portal que junta todas as empresas que usam o
     # Workable; a busca casa o termo também na descrição, então passa pelo
     # filtro de título como as fontes por empresa
@@ -410,11 +426,17 @@ def collect_jobs(config: dict) -> list[dict]:
         for geo in jb.get("geos", ["anywhere", "latam", "brazil"]):
             tarefa("jobicy", f"Jobicy falhou para '{geo}'",
                    lambda g=geo: fetch_jobicy(geo=g, term_filter=titulo_ok, limit=company_limit))
+    # GTM Daily: diretório curado de vagas de GTM engineering/RevOps (lê as
+    # páginas da listagem e baixa a página só das que passam no título e local)
+    if on("gtmdaily"):
+        tarefa("gtmdaily", "GTM Daily falhou", lambda: fetch_gtmdaily(
+            term_filter=titulo_ok, max_pages=sources["gtmdaily"].get("max_pages", 15), limit=company_limit))
     if on("workingnomads"):
         tarefa("workingnomads", "Working Nomads falhou",
                lambda: fetch_workingnomads(term_filter=titulo_ok, limit=company_limit))
 
     limpar_boards()
+    resetar_bloqueio_workable()
     resultados = _rodar_tarefas(tarefas, config)
     # board/empresa sem nenhuma vaga publicada: o aviso de "fonte vazia" (no
     # main) só pega a fonte inteira, não uma empresa que mudou de sistema
@@ -880,7 +902,9 @@ def main():
     # fonte ligada que veio vazia quase sempre é site que mudou/bloqueou, não
     # falta de vaga — sem este aviso, as vagas dela sumiam do relatório em silêncio
     for fonte, cfg in config.get("sources", {}).items():
-        if cfg.get("enabled") and not por_fonte.get(fonte):
+        # fonte por empresa ainda sem nenhuma empresa na lista não é fonte quebrada
+        sem_empresas = any(k in cfg and not cfg[k] for k in ("empresas", "boards", "sites", "tenants"))
+        if cfg.get("enabled") and not por_fonte.get(fonte) and not sem_empresas:
             print(f"  [aviso] a fonte '{fonte}' está ligada mas não trouxe nenhuma vaga — "
                   f"provavelmente o site mudou ou bloqueou o acesso (ver collectors/{fonte}.py).",
                   file=sys.stderr)

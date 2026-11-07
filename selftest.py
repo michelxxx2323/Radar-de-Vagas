@@ -1464,6 +1464,22 @@ def test_intl_coletores_novos():
             patch("collectors.workable.time.sleep") as dorme:
         jobs = workable.fetch_workable("revops", location="", somente_aceita_brasil=True)
     assert [j["empresa"] for j in jobs] == ["Ok"] and dorme.called
+    # 429 em todas as tentativas: a busca falha e as próximas desistem sem esperar
+    workable.resetar_bloqueio()
+    with patch("collectors.workable.requests.get", return_value=_FakeResp({}, 429)) as m, \
+            patch("collectors.workable.time.sleep"):
+        try:
+            workable.fetch_workable("revops", location="")
+            raise AssertionError("devia falhar")
+        except RuntimeError:
+            pass
+        n = m.call_count
+        try:
+            workable.fetch_workable("clay", location="")
+        except Exception:  # noqa: BLE001
+            pass
+        assert m.call_count == n  # bloqueado: nem chamou o portal
+    workable.resetar_bloqueio()
 
     # mesmo anúncio com códigos diferentes conta uma vez no Perfil 2
     import screen
@@ -1606,6 +1622,84 @@ def test_painel_perfil_intl():
     print("OK  test_painel_perfil_intl")
 
 
+def test_coletores_pme_e_gtmdaily():
+    """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
+    from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
+    rc = {"offers": [
+        {"id": 1, "title": "Revenue Operations Manager", "description": "<p>Own RevOps</p>", "requirements": "<ul><li>HubSpot</li></ul>",
+         "location": "Remote", "remote": True, "careers_url": "https://acme.recruitee.com/o/revops",
+         "published_at": "2026-11-01 10:00:00 UTC", "company_name": "Acme"},
+        {"id": 2, "title": "Backend Engineer", "location": "Berlin", "remote": False},
+    ]}
+    with patch("collectors.recruitee.requests.get", return_value=_FakeResp(rc)) as m:
+        jobs = recruitee.fetch_recruitee("acme", "Acme", term_filter=["operations"])
+    assert m.call_args.args[0] == "https://acme.recruitee.com/api/offers/"
+    assert len(jobs) == 1 and jobs[0]["remoto"] and jobs[0]["descricao"] == "Own RevOps HubSpot"
+    assert jobs[0]["publicado_em"] == "2026-11-01" and jobs[0]["link"].endswith("/o/revops")
+
+    xml = ("<?xml version='1.0' encoding='UTF-8'?><workzag-jobs><position><id>77</id><office>Remote (EU)</office>"
+           "<name>Growth Operations Lead</name><jobDescriptions><jobDescription><name>Your tasks</name>"
+           "<value>&lt;p&gt;Run growth ops&lt;/p&gt;</value></jobDescription></jobDescriptions>"
+           "<createdAt>2026-10-30T09:00:00+00:00</createdAt></position></workzag-jobs>")
+    with patch("collectors.personio.requests.get", return_value=_FakeResp(None, content=xml.encode())):
+        jobs = personio.fetch_personio("beta", "Beta", term_filter=["growth"])
+    assert jobs[0]["link"] == "https://beta.jobs.personio.de/job/77" and jobs[0]["remoto"]
+    assert "Run growth ops" in jobs[0]["descricao"] and jobs[0]["publicado_em"] == "2026-10-30"
+
+    bz = [{"id": "x1", "name": "Marketplace Operations Specialist", "url": "https://g.breezy.hr/p/x1",
+           "published_date": "2026-11-02T00:00:00Z",
+           "location": {"name": "Remote", "is_remote": True, "country": {"name": "United States"}}}]
+    pagina = _FakeResp(None, text='<div class="description"><p>Amazon Seller Central</p></div>')
+    with patch("collectors.breezy.requests.get", side_effect=[_FakeResp(bz), pagina]):
+        jobs = breezy.fetch_breezy("g", "Gamma", term_filter=["marketplace"])
+    assert jobs[0]["remoto"] and "Amazon Seller Central" in jobs[0]["descricao"]
+
+    pp = {"data": [{"id": 5, "title": "Partner Success Manager", "description": "<p>Partners</p>",
+                    "url": "https://d.pinpointhq.com/postings/5", "workplace_type": "remote",
+                    "location": {"name": "London"}}]}
+    with patch("collectors.pinpoint.requests.get", return_value=_FakeResp(pp)):
+        jobs = pinpoint.fetch_pinpoint("d", "Delta", term_filter=["partner"])
+    assert jobs[0]["remoto"] and jobs[0]["cidade"] == "London"
+
+    def card(local, titulo, empresa, slug, pay="Full-time", tools="", idade="Yesterday"):
+        t = f'<p class="line-clamp-1 text-[15px] text-muted">{tools}</p>' if tools else ""
+        return (f'<li><article class="group relative flex flex-col"><div class="relative"><span class="absolute '
+                f'left-3 top-3 rounded-full">{local}</span></div><div class="flex"><p class="text-xs font-medium '
+                f'text-subtle">{pay}</p><h3 class="text-[19px]"><a class="after:absolute" href="/jobs/{slug}?via=list">'
+                f'{titulo}</a></h3>{t}<div class="mt-1.5"><span aria-hidden="true">T</span><span class="truncate">'
+                f'{empresa}</span><span class="shrink-0 text-subtle">{idade}</span></div></div></article></li>')
+    lista = ("<ul>" + card("Remote, Brazil", "Go-To-Market Engineer", "Wellhub", "gtm-wellhub",
+                           tools="Clay, Salesforce")
+             + card("Remote, New York, NY", "GTM Engineering Manager", "Tremendous", "gtm-tremendous",
+                    pay="$190K to $230K a year · Full-time")
+             + card("Remote", "RevOps Solutions Architect", "Jobgether", "revops-jobgether", idade="3 days ago")
+             + card("Remote", "GTM Engineer", "CloudTask", "gtm-cloudtask")
+             + "</ul><nav><a href='/jobs?page=2'>Older</a></nav>")
+    det = {"gtm-wellhub": "Remote from anywhere in Brazil.",
+           "revops-jobgether": "This role is open to candidates in Latin America.",
+           "gtm-cloudtask": "You must be based in the US."}
+    pedidos = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        pedidos.append((url, params))
+        if url.endswith("/jobs"):
+            return _FakeResp(None, text=lista if not params else "<ul></ul>")
+        slug = url.rsplit("/", 1)[-1]
+        return _FakeResp(None, text=f'<article><section aria-labelledby="role-h"><p>{det[slug]}</p></section></article>')
+
+    with patch("collectors.gtmdaily.requests.get", side_effect=fake_get), patch("collectors.gtmdaily.time.sleep"):
+        jobs = gtmdaily.fetch_gtmdaily(term_filter=["gtm", "go-to-market", "revops"], max_pages=3)
+    assert [j["empresa"] for j in jobs] == ["Wellhub", "Jobgether"]  # NY e "based in the US" ficam de fora
+    assert not any("tremendous" in u for u, _ in pedidos)  # local de fora: nem baixa a página
+    assert all(p in (None, {"page": 2}) for _, p in pedidos)  # nunca 2 parâmetros (robots.txt)
+    w = jobs[0]
+    assert w["link"] == "https://gtmdaily.com/jobs/gtm-wellhub" and w["remoto"]
+    assert w["descricao"].startswith("Ferramentas citadas: Clay, Salesforce.")
+    assert gtmdaily.idade_para_data("3 days ago", dt.date(2026, 11, 7)) == "2026-11-04"
+    assert gtmdaily.idade_para_data("2 weeks ago", dt.date(2026, 11, 7)) == "2026-10-24"
+    print("OK  test_coletores_pme_e_gtmdaily")
+
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -1639,4 +1733,5 @@ if __name__ == "__main__":
     test_intl_elegibilidade_e_regras()
     test_intl_rodada_mock_separada()
     test_painel_perfil_intl()
+    test_coletores_pme_e_gtmdaily()
     print("\nTodos os testes offline passaram.")

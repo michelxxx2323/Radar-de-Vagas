@@ -194,6 +194,27 @@ sources:
   workingnomads:
     enabled: false
 
+  # GTM Daily: vagas curadas de GTM engineering/RevOps/ops (fontes-vagas.md, nº 1)
+  gtmdaily:
+    enabled: true
+    max_pages: 15            # 20 vagas por página
+
+  # ATSs de agências e empresas pequenas (fontes-vagas.md, seção 5). Cada item:
+  # {empresa: "Nome", id: "<subdomínio no ATS>"}. Só empresas confirmadas pelo
+  # descobrir_ats.py (rodar nas agências de gtmdaily.com/agencies).
+  recruitee:
+    enabled: true
+    empresas: []
+  personio:
+    enabled: true
+    empresas: []
+  breezy:
+    enabled: true
+    empresas: []
+  pinpoint:
+    enabled: true
+    empresas: []
+
   # Workable: busca no mundo todo e fica com as remotas que aceitam Brasil
   workable:
     enabled: true
@@ -266,7 +287,8 @@ dedup_ignora_codigos: true
 # presencial/híbrida no Brasil só fica se pagar em dólar ou vier de uma destas
 # fontes (aqui só têm empresa estrangeira)
 somente_remoto: true
-fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters"]
+fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters",
+                     "recruitee", "personio", "breezy", "pinpoint"]
 
 limit_per_term: 15
 jev_model: "jev-latest"

@@ -1756,6 +1756,12 @@ def test_fontes_intl_ajustes():
     tarefas = []
     with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
         screen.collect_jobs(config)
+    # busca agregada desligada no Perfil 2; religada, fica com os 8 termos
+    assert not [r for f, r, _ in tarefas if f == "workable"]
+    config["sources"]["workable"]["enabled"] = True
+    tarefas.clear()
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
     rotulos = [r for f, r, _ in tarefas if f == "workable"]
     assert len(rotulos) == 8 and "Workable falhou para 'amazon'" in rotulos
     assert any(f == "workable_contas" and "Hire Overseas" in r for f, r, _ in tarefas)

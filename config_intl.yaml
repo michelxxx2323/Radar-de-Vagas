@@ -227,12 +227,13 @@ sources:
     empresas:
       - {empresa: "Hire Overseas", id: "hire-overseas"}   # 109 vagas em 07/11/2026
 
-  # Busca agregada do Workable (jobs.workable.com): não é feita para varredura e
-  # bloqueou a rodada com 429 (07/11/2026). Fica só com 8 termos, 1 busca por
-  # vez, 2 s entre chamadas e espera no 429; as empresas boas vão para
-  # workable_contas.
+  # Busca agregada do Workable (jobs.workable.com): não é feita para varredura.
+  # Desligada em 07/11/2026: mesmo com 8 termos, 1 busca por vez e 2 s entre
+  # chamadas, a 1ª busca já tomou 429 e a rodada gastou 120 s esperando sem
+  # trazer vaga. As empresas boas vão para workable_contas. Para religar, mude
+  # enabled e mantenha os 8 termos.
   workable:
-    enabled: true
+    enabled: false
     location: ""
     remoto_global: true
     limit_per_term: 60

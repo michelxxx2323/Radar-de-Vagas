@@ -20,3 +20,5 @@ venv/
 # --- Painel na nuvem (web/) ---
 painel_local.db
 web/.vercel/
+cv_intl.txt
+preferencias_intl.txt

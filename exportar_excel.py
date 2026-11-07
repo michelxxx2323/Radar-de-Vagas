@@ -54,12 +54,26 @@ CORES = {
 FONTE = "Arial"
 
 
-def write_xlsx(rows: list[dict], path: Path) -> None:
+# colunas a mais do Perfil 2 (perfil_intl.py), depois da Trilha
+COLUNAS_INTL = [
+    ("elegibilidade", "Aceita Brasil?", 13),
+    ("ingles_exigido", "Inglês exigido", 14),
+    ("gap_qual", "Gap", 18),
+    ("tipo_empresa", "Tipo de empresa", 18),
+]
+
+
+def write_xlsx(rows: list[dict], path: Path, intl: bool = False) -> None:
+    colunas = COLUNAS
+    if intl:
+        i = [c[0] for c in COLUNAS].index("trilha") + 1
+        colunas = ([("perfil", "Perfil", 8)] + COLUNAS[:i] + COLUNAS_INTL + COLUNAS[i:]
+                   + [("cv_usado", "CV usado na nota", 22)])
     wb = Workbook()
     ws = wb.active
     ws.title = "Vagas"
 
-    for c, (_, cab, larg) in enumerate(COLUNAS, 1):
+    for c, (_, cab, larg) in enumerate(colunas, 1):
         cell = ws.cell(row=1, column=c, value=cab)
         cell.font = Font(name=FONTE, bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="305496")
@@ -68,7 +82,7 @@ def write_xlsx(rows: list[dict], path: Path) -> None:
 
     for i, r in enumerate(rows, 2):
         fill = PatternFill("solid", fgColor=CORES[r["recomendacao"]]) if r.get("recomendacao") in CORES else None
-        for c, (campo, _, _) in enumerate(COLUNAS, 1):
+        for c, (campo, _, _) in enumerate(colunas, 1):
             valor = r.get(campo, "")
             cell = ws.cell(row=i, column=c)
             cell.font = Font(name=FONTE)
@@ -94,7 +108,7 @@ def write_xlsx(rows: list[dict], path: Path) -> None:
                 cell.fill = fill
 
     ws.freeze_panes = "D2"  # cabeçalho + recomendação/nota/vaga sempre visíveis
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(COLUNAS))}{max(len(rows) + 1, 1)}"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(colunas))}{max(len(rows) + 1, 1)}"
     wb.save(path)
 
 

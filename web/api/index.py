@@ -243,6 +243,7 @@ def criar_app(banco: Banco | None = None) -> Flask:
         return jsonify(vagas=vagas, candidaturas=cands, relatorio=banco.meta("relatorio"),
                        pc_visto_em=banco.meta("pc_visto_em"), lacunas=banco.meta_json("lacunas"),
                        lacunas_revisao=banco.meta_json("lacunas_revisao"), descartes=descartes,
+                       coletores=banco.meta_json("coletores"),
                        motivos_descarte=MOTIVOS_DESCARTE)
 
     @app.post("/api/candidatura")
@@ -366,6 +367,8 @@ def criar_app(banco: Banco | None = None) -> Flask:
         banco.gravar_meta("assinatura", corpo.get("assinatura", ""))
         if corpo.get("lacunas"):  # vazio = o PC não conseguiu calcular; fica o anterior
             banco.gravar_meta("lacunas", json.dumps(corpo["lacunas"], ensure_ascii=False))
+        if corpo.get("coletores"):  # aba "Coletores": a situação de cada fonte na última rodada de cada perfil
+            banco.gravar_meta("coletores", json.dumps(corpo["coletores"], ensure_ascii=False))
         return jsonify(ok=True)
 
     @app.errorhandler(400)

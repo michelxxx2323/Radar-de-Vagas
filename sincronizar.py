@@ -8,7 +8,8 @@ Chamado pelo rodar_diario.bat depois da coleta:
    seja o mesmo) — as do Perfil 1 (vagas_triadas_*) e as do último relatório
    do Perfil 2 (vagas_intl_*), cada uma marcada com o `perfil`;
 2. sobe o mapa de lacunas do mesmo relatório (lacunas.py), para a aba
-   "Lacunas";
+   "Lacunas", e a situação de cada coletor na última rodada de cada perfil
+   (output/coleta.json e coleta_intl.json), para a aba "Coletores";
 3. baixa as candidaturas registradas no painel para output/candidaturas.json —
    uma cópia de segurança no PC, caso o banco da nuvem se perca — e, do mesmo
    jeito, as vagas descartadas (output/descartes.json, com o motivo) e a sua
@@ -40,6 +41,8 @@ CAMPOS_LISTA = ["nota_fit", "recomendacao", "titulo", "empresa", "fonte", "cidad
                 "perfil", "elegibilidade", "tipo_empresa", "ingles_exigido"]
 # (padrão do relatório, perfil) — o Perfil 2 vem depois na ordem do painel
 RELATORIOS = [("vagas_triadas_*.csv", "br"), ("vagas_intl_*.csv", "intl")]
+# situação dos coletores na última rodada de cada perfil (screen.py, resumo_coleta)
+COLETAS = [("coleta.json", "br"), ("coleta_intl.json", "intl")]
 
 
 class Nuvem:
@@ -60,9 +63,10 @@ class Nuvem:
     def estado(self) -> dict:
         return self._req("GET", "/api/pc/estado")
 
-    def subir_vagas(self, relatorio: str, vagas: list[dict], assinatura: str, lacunas: dict | None = None) -> None:
+    def subir_vagas(self, relatorio: str, vagas: list[dict], assinatura: str, lacunas: dict | None = None,
+                    coletores: dict | None = None) -> None:
         self._req("PUT", "/api/pc/vagas", json={"relatorio": relatorio, "vagas": vagas, "assinatura": assinatura,
-                                                "lacunas": lacunas or {}})
+                                                "lacunas": lacunas or {}, "coletores": coletores or {}})
 
 
 def assinatura(vagas) -> str:
@@ -93,6 +97,19 @@ def vagas_do_relatorio(out_dir: Path) -> tuple[str, list[dict]]:
     return nome, vagas
 
 
+def coletas(out_dir: Path) -> dict:
+    """{"br": resumo da última coleta do Perfil 1, "intl": do Perfil 2} — só os
+    perfis que já rodaram. Arquivo ilegível fica de fora (o painel mantém o
+    anterior)."""
+    saida = {}
+    for nome, perfil in COLETAS:
+        try:
+            saida[perfil] = json.loads((out_dir / nome).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return saida
+
+
 def lacunas_do_relatorio(config: dict) -> dict:
     """Mapa de lacunas (lacunas.py) para a aba "Lacunas" do painel. Sem cv.txt
     ou sem a coleta, segue sem ele — as vagas do dia sobem do mesmo jeito."""
@@ -114,11 +131,12 @@ def sincronizar(config: dict, nuvem: Nuvem) -> dict:
     subidas = 0
     if relatorio:
         lacunas = lacunas_do_relatorio(config)
-        # a assinatura cobre as lacunas também: sem isso, a 1ª rodada depois
-        # desta mudança não subiria o mapa (as vagas eram as mesmas)
-        marca = assinatura({"vagas": vagas, "lacunas": lacunas})
+        coletores = coletas(out_dir)
+        # a assinatura cobre as lacunas e os coletores também: sem isso, uma
+        # rodada com as mesmas vagas não subiria o resto
+        marca = assinatura({"vagas": vagas, "lacunas": lacunas, "coletores": coletores})
         if marca != remoto.get("assinatura"):
-            nuvem.subir_vagas(relatorio, vagas, marca, lacunas)
+            nuvem.subir_vagas(relatorio, vagas, marca, lacunas, coletores)
             subidas = len(vagas)
 
     copia = out_dir / "candidaturas.json"

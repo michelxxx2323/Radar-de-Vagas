@@ -56,6 +56,7 @@ from collectors.teamtailor import fetch_teamtailor
 from collectors.tiktok import fetch_tiktok
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
+from collectors.workable import resetar_bloqueio as resetar_bloqueio_workable
 from collectors.workday import fetch_workday
 from collectors.workingnomads import fetch_workingnomads
 from collectors import _cache as desc_cache
@@ -435,6 +436,7 @@ def collect_jobs(config: dict) -> list[dict]:
                lambda: fetch_workingnomads(term_filter=titulo_ok, limit=company_limit))
 
     limpar_boards()
+    resetar_bloqueio_workable()
     resultados = _rodar_tarefas(tarefas, config)
     # board/empresa sem nenhuma vaga publicada: o aviso de "fonte vazia" (no
     # main) só pega a fonte inteira, não uma empresa que mudou de sistema

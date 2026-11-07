@@ -19,6 +19,7 @@ isso o screen.py aplica o filtro de título (title_keywords) nestas vagas.
 """
 from __future__ import annotations
 
+import threading
 import time
 
 import requests
@@ -58,19 +59,32 @@ def _aceita_brasil(j: dict) -> bool:
     return aceita_brasil(local, strip_html(texto))
 
 
-def _get(params: dict, tentativas: int = 6):
+# Se o portal seguiu respondendo 429 depois das esperas, ele bloqueou esta
+# rodada: as buscas seguintes desistem na hora em vez de esperar de novo
+# (07/11/2026: 26 buscas em 429, e a rodada ficou ~30 min parada no Workable).
+_BLOQUEADO = threading.Event()
+
+
+def resetar_bloqueio() -> None:
+    _BLOQUEADO.clear()
+
+
+def _get(params: dict, tentativas: int = 3):
     """GET com espera quando o portal responde 429 (muitas buscas seguidas).
-    Respeita o Retry-After; sem ele, espera 15 s, 30 s, 60 s... (07/11/2026:
-    com 5/10/20 s e uma busca por vez, 24 das 26 buscas do Perfil 2 ainda
-    terminavam em 429)."""
+    Respeita o Retry-After (até 60 s); sem ele, espera 15 s e 30 s."""
+    if _BLOQUEADO.is_set():
+        raise requests.HTTPError("429 Too Many Requests (Workable bloqueou esta rodada; buscas seguintes puladas)")
     espera = 15
     for i in range(tentativas):
         resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
-        if resp.status_code != 429 or i == tentativas - 1:
+        if resp.status_code != 429:
+            return resp
+        if i == tentativas - 1:
+            _BLOQUEADO.set()
             return resp
         pedido = str((getattr(resp, "headers", None) or {}).get("Retry-After", "")).strip()
-        time.sleep(int(pedido) if pedido.isdigit() else espera)
-        espera = min(espera * 2, 120)
+        time.sleep(min(int(pedido), 60) if pedido.isdigit() else espera)
+        espera *= 2
     return resp
 
 

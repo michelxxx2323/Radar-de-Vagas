@@ -1464,6 +1464,22 @@ def test_intl_coletores_novos():
             patch("collectors.workable.time.sleep") as dorme:
         jobs = workable.fetch_workable("revops", location="", somente_aceita_brasil=True)
     assert [j["empresa"] for j in jobs] == ["Ok"] and dorme.called
+    # 429 em todas as tentativas: a busca falha e as próximas desistem sem esperar
+    workable.resetar_bloqueio()
+    with patch("collectors.workable.requests.get", return_value=_FakeResp({}, 429)) as m, \
+            patch("collectors.workable.time.sleep"):
+        try:
+            workable.fetch_workable("revops", location="")
+            raise AssertionError("devia falhar")
+        except RuntimeError:
+            pass
+        n = m.call_count
+        try:
+            workable.fetch_workable("clay", location="")
+        except Exception:  # noqa: BLE001
+            pass
+        assert m.call_count == n  # bloqueado: nem chamou o portal
+    workable.resetar_bloqueio()
 
     # mesmo anúncio com códigos diferentes conta uma vez no Perfil 2
     import screen

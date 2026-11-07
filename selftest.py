@@ -1618,7 +1618,13 @@ def test_painel_perfil_intl():
     intl = vagas[1]
     assert intl["elegibilidade"] == "sim" and intl["tipo_empresa"] == "agencia" and intl["n"] > vagas[0]["n"]
     html = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
-    assert 'id="perfil"' in html and "perfilVaga" in html
+    assert 'data-acao="perfil"' in html and "perfilVaga" in html and "chipPerfil" in html
+    assert all(v["relatorio"] == ("vagas_triadas_2026-01-01.csv" if v["perfil"] == "br" else "vagas_intl_2026-01-01.csv")
+               for v in vagas)  # cada vaga leva o próprio relatório (data e "Nova" por perfil)
+    bat = (Path(__file__).parent / "rodar_diario.bat").read_text(encoding="utf-8")
+    p1, p2, sync = (bat.index("python screen.py >>"), bat.index("python screen.py --config config_intl.yaml"),
+                    bat.index("python sincronizar.py"))
+    assert p1 < p2 < sync  # tarefa diária: Perfil 1, depois Perfil 2, depois o painel
     print("OK  test_painel_perfil_intl")
 
 
@@ -1680,16 +1686,39 @@ def test_coletores_pme_e_gtmdaily():
            "gtm-cloudtask": "You must be based in the US."}
     pedidos = []
 
+    # a partir da página 2 o site repete a mesma lista (como o real repete a 5ª)
+    sitemap = ("<urlset><url><loc>https://gtmdaily.com/jobs</loc></url>"
+               "<url><loc>https://gtmdaily.com/jobs/gtm-wellhub</loc></url>"
+               "<url><loc>https://gtmdaily.com/jobs/senior-gtm-systems-specialist-willdom-48d4280b</loc></url>"
+               "<url><loc>https://gtmdaily.com/jobs/backend-engineer-acme-123</loc></url></urlset>")
+    pagina_willdom = ('<div><p class="text-base">Willdom</p><h1>Senior GTM Systems Specialist</h1></div>'
+                      '<dl><div><dt>Location</dt><dd>Remote, Latin America</dd></div>'
+                      '<div><dt>Pay</dt><dd>Not published on the listing</dd></div>'
+                      '<div><dt>Type</dt><dd>Contract</dd></div>'
+                      '<div><dt>Originally posted</dt><dd>Oct 12, 2026</dd></div>'
+                      '<div><dt>Tools</dt><dd><span>HubSpot</span><span>n8n</span></dd></div></dl>'
+                      '<article><section aria-labelledby="role-h"><p>Open to LATAM.</p></section></article>')
+
     def fake_get(url, params=None, headers=None, timeout=None):
         pedidos.append((url, params))
         if url.endswith("/jobs"):
-            return _FakeResp(None, text=lista if not params else "<ul></ul>")
+            return _FakeResp(None, text=lista)
+        if url.endswith("/sitemap.xml"):
+            return _FakeResp(None, text=sitemap)
         slug = url.rsplit("/", 1)[-1]
+        if "willdom" in slug:
+            return _FakeResp(None, text=pagina_willdom)
         return _FakeResp(None, text=f'<article><section aria-labelledby="role-h"><p>{det[slug]}</p></section></article>')
 
     with patch("collectors.gtmdaily.requests.get", side_effect=fake_get), patch("collectors.gtmdaily.time.sleep"):
         jobs = gtmdaily.fetch_gtmdaily(term_filter=["gtm", "go-to-market", "revops"], max_pages=3)
-    assert [j["empresa"] for j in jobs] == ["Wellhub", "Jobgether"]  # NY e "based in the US" ficam de fora
+    # NY e "based in the US" ficam de fora; Willdom só existe no sitemap
+    assert [j["empresa"] for j in jobs] == ["Wellhub", "Jobgether", "Willdom"], [j["empresa"] for j in jobs]
+    assert sum(1 for u, _ in pedidos if u.endswith("/jobs")) == 2  # página repetida: para
+    assert not any("backend-engineer" in u for u, _ in pedidos)  # título fora do filtro: nem baixa
+    wd = jobs[2]
+    assert wd["cidade"] == "Remote, Latin America" and wd["publicado_em"] == "2026-10-12"
+    assert wd["descricao"].startswith("Ferramentas citadas: HubSpot, n8n.") and wd["salario"] == ""
     assert not any("tremendous" in u for u, _ in pedidos)  # local de fora: nem baixa a página
     assert all(p in (None, {"page": 2}) for _, p in pedidos)  # nunca 2 parâmetros (robots.txt)
     w = jobs[0]

@@ -47,7 +47,7 @@ MOTIVOS_DESCARTE = [
 # avaliação de cada termo da aba Lacunas: "tenho" (vai pra lista do CV) ou "lacuna"
 AVALIACOES_LACUNA = ["tenho", "lacuna"]
 CAMPOS_VAGA = ["titulo", "empresa", "link", "fonte", "nota_fit", "recomendacao", "cidade", "estado",
-               "remoto", "salario", "publicado_em"]
+               "remoto", "salario", "publicado_em", "perfil"]
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS candidaturas (link TEXT PRIMARY KEY, id TEXT UNIQUE NOT NULL,
@@ -310,7 +310,7 @@ def criar_app(banco: Banco | None = None) -> Flask:
             abort(404, "Vaga não encontrada na lista de hoje.")
         v = json.loads(linha[0])
         reg = {k: v.get(k, "") for k in ["link", "titulo", "empresa", "fonte", "nota_fit", "recomendacao",
-                                           "trilha", "cidade", "remoto", "salario", "publicado_em"]}
+                                           "trilha", "cidade", "remoto", "salario", "publicado_em", "perfil"]}
         reg.update(motivo=motivo, nota=(d.get("nota") or "").strip()[:500], em=_agora())
         banco.executar("INSERT INTO descartes (link, dados) VALUES (%s, %s) "
                        "ON CONFLICT (link) DO UPDATE SET dados = excluded.dados",

@@ -4,7 +4,8 @@
 #   python screen.py --config config_intl.yaml          # rodada real
 #   python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
 #
-# O Perfil 1 (config.yaml) continua sendo o da tarefa agendada das 07:00.
+# A tarefa agendada das 07:00 (rodar_diario.bat) roda este perfil logo depois do
+# Perfil 1 (config.yaml).
 # Este perfil tem histórico, coleta e relatório próprios:
 #   output/historico_intl.json, output/vagas_coletadas_intl.json,
 #   output/vagas_intl_<data>.csv/.xlsx, output/novas_intl_<data>.csv
@@ -233,6 +234,10 @@ sources:
       - "stackblitz"         # já confirmado no config.yaml
       - "arenaim"            # já confirmado no config.yaml
       - "ebury"              # já confirmado no config.yaml
+      # agência de RevOps/HubSpot do gtmdaily.com/agencies (descobrir_ats, 07/11/2026).
+      # Hoje só tem o "Contractor Talent Community" (remoto), que o filtro de título
+      # não pega; fica para as vagas de RevOps que ela abrir.
+      - "aptitude8"
 
   lever:
     enabled: true

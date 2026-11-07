@@ -12,6 +12,7 @@
     --oferta: #1d7a35; --oferta-bg: #dff3e4; --recusada: #b42318; --recusada-bg: #fde7e5;
     --encerrada: #6b7280; --encerrada-bg: #eef0f2; --alerta: #b42318; --atraso: #b26a00;
     --nova: #1f4e79; --nova-bg: #e1ecf7;
+    --p1: #0b6e4f; --p1-bg: #dcf1e8; --p2: #a14a00; --p2-bg: #fbe9d7;
     --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   }
   @media (prefers-color-scheme: dark) {
@@ -22,6 +23,7 @@
       --oferta: #6fd68a; --oferta-bg: #173520; --recusada: #f2877d; --recusada-bg: #3d1d1a;
       --encerrada: #9aa5b1; --encerrada-bg: #262c34; --alerta: #f2877d; --atraso: #f0b44c; --shadow: none;
       --nova: #8cc0ef; --nova-bg: #1b2c3d;
+      --p1: #5fd3a5; --p1-bg: #133528; --p2: #f3a35c; --p2-bg: #3a2614;
     }
   }
   * { box-sizing: border-box; }
@@ -98,6 +100,23 @@
   .chip.atraso { background: var(--surface-2); color: var(--atraso); font-weight: 600; margin-left: 6px; }
   .chip.alerta { background: var(--recusada-bg); color: var(--alerta); font-weight: 600; margin-left: 6px; cursor: help; }
   .rascunho td { background: var(--surface-2); }
+  /* Perfil 1 (Brasil) e Perfil 2 (internacional, em dólar): cor própria em chip, linha e cartão */
+  .chip.p-br { background: var(--p1-bg); color: var(--p1); font-weight: 600; }
+  .chip.p-intl { background: var(--p2-bg); color: var(--p2); font-weight: 600; }
+  .chip.p-br.mini, .chip.p-intl.mini { margin-left: 6px; font-size: 11px; padding: 1px 6px; }
+  .tabela tr.perfil-br > td:first-child { box-shadow: inset 3px 0 0 var(--p1); }
+  .tabela tr.perfil-intl > td:first-child { box-shadow: inset 3px 0 0 var(--p2); }
+  .perfis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .perfis button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+                   min-width: 200px; flex: 1; max-width: 340px; padding: 10px 14px; border-radius: 10px;
+                   border-top: 4px solid var(--border); }
+  .perfis button.br { border-top-color: var(--p1); }
+  .perfis button.intl { border-top-color: var(--p2); }
+  .perfis button.ativa { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .perfis button.br.ativa { border-color: var(--p1); box-shadow: inset 0 0 0 1px var(--p1); }
+  .perfis button.intl.ativa { border-color: var(--p2); box-shadow: inset 0 0 0 1px var(--p2); }
+  .perfis .nome { font-weight: 700; }
+  .perfis .qtd { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .barra-pct { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 8px; }
   .barra-pct.gap { background: var(--atraso); }
   .barra-pct.semgap { background: var(--muted); opacity: .6; }
@@ -157,6 +176,9 @@ let filtroFunil = "ativas";
 let filtroVagas = { busca: "", rec: "aplicar_agora", perfil: lerLocal("perfil") || "todos", esconder: true, novas: false, descartadas: false, limite: 150 };
 // Perfil 2 (07/11/2026): vagas internacionais em dólar, do relatório vagas_intl_*
 const PERFIS = { br: "Brasil", intl: "Internacional" };
+// rótulo curto do chip e o que cada perfil busca (cartões no topo da aba Vagas de hoje)
+const PERFIL_CHIP = { br: "P1 · Brasil", intl: "P2 · Internacional" };
+const PERFIL_DESC = { br: "Vagas no Brasil", intl: "Remotas no exterior, em dólar" };
 const ELEGIB = { sim: "aceita Brasil", incerta: "elegibilidade incerta", nao: "não aceita Brasil" };
 const TIPO_EMPRESA = { agencia: "agência", marca_dtc: "marca DTC", empresa_pequena: "empresa pequena",
   empresa_media: "empresa média", marketplace: "marketplace", saas: "SaaS", grande_corporacao: "grande corporação" };
@@ -230,10 +252,21 @@ function haQuantoTempo(iso) {
   return `há ${Math.round(min / 1440)} dias`;
 }
 // "vagas_triadas_2026-10-28.csv" -> "2026-10-28"
-function dataRelatorio() { return (dados.relatorio || "").replace("vagas_triadas_", "").replace("vagas_intl_", "").replace(".csv", ""); }
+function dataDoNome(nome) { return (nome || "").replace(/^vagas_(triadas|intl)_/, "").replace(".csv", ""); }
+function dataRelatorio() { return dataDoNome(dados.relatorio); }
 function perfilVaga(v) { return v.perfil || "br"; }
-// nova = apareceu no radar pela 1ª vez no dia do relatório
-function ehNova(v) { return !!v.adicionada_em && v.adicionada_em === dataRelatorio(); }
+// cada vaga traz o nome do próprio relatório (sincronizar.py, 07/11/2026); as
+// sincronizadas antes disso caem no relatório do Perfil 1
+function relatorioDaVaga(v) { return v.relatorio || dados.relatorio; }
+function dataPerfil(p) {
+  const v = dados.vagas.find(x => perfilVaga(x) === p);
+  return v ? dataDoNome(relatorioDaVaga(v)) : "";
+}
+function chipPerfil(p, mini) {
+  return p ? `<span class="chip p-${esc(p)}${mini ? " mini" : ""}" title="${p === "intl" ? "Perfil 2: vagas internacionais em dólar" : "Perfil 1: vagas no Brasil"}">${esc(PERFIL_CHIP[p] || p)}</span>` : "";
+}
+// nova = apareceu no radar pela 1ª vez no dia do relatório do perfil dela
+function ehNova(v) { return !!v.adicionada_em && v.adicionada_em === dataDoNome(relatorioDaVaga(v)); }
 function aviso(texto) {
   const el = document.getElementById("aviso");
   el.textContent = texto; el.classList.add("visivel");
@@ -272,9 +305,10 @@ async function carregar() {
   catch (e) { if (!document.getElementById("login")) aviso("Não consegui falar com o painel: " + e.message); return; }
   document.getElementById("sair").hidden = false;
   const meta = document.getElementById("meta");
-  const data = dataRelatorio();
-  meta.textContent = data ? `Vagas de ${dataBR(data)}` + (dados.pc_visto_em ? ` · PC sincronizou ${haQuantoTempo(dados.pc_visto_em)}` : "")
-    : "O PC ainda não mandou as vagas";
+  const datas = ["br", "intl"].map(p => [p, dataPerfil(p)]).filter(([, d]) => d);
+  meta.textContent = datas.length ? datas.map(([p, d]) => `${PERFIL_CHIP[p]}: vagas de ${dataBR(d)}`).join(" · ")
+      + (dados.pc_visto_em ? ` · PC sincronizou ${haQuantoTempo(dados.pc_visto_em)}` : "")
+    : dataRelatorio() ? `Vagas de ${dataBR(dataRelatorio())}` : "O PC ainda não mandou as vagas";
   // a rodada é diária: mais de um dia e meio sem notícia do PC merece um aviso
   meta.classList.toggle("atrasado", !dados.pc_visto_em || Date.now() - new Date(dados.pc_visto_em) > 36 * 3600000);
   desenharAbas();
@@ -440,7 +474,7 @@ function linhaCandidatura(c) {
   return `<tr>
       <td class="vaga">${/^https?:/.test(c.link) ? `<a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>`
           : `<strong>${esc(c.titulo)}</strong>`}
-        <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}</div></td>
+        <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}${chipPerfil(c.perfil, true)}</div></td>
       <td><select data-acao="status" data-id="${c.id}">${POS.map(s =>
         `<option value="${s}" ${s === c.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></td>
       <td>${dataBR(c.enviada_em)}</td>
@@ -468,19 +502,17 @@ function abaVagas() {
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
-    <select id="perfil" title="Perfil 1: Brasil · Perfil 2: vagas internacionais em dólar">
-      <option value="todos" ${f.perfil === "todos" ? "selected" : ""}>Os dois perfis</option>
-      <option value="br" ${f.perfil === "br" ? "selected" : ""}>Brasil (${dados.vagas.filter(v => perfilVaga(v) === "br").length})</option>
-      <option value="intl" ${f.perfil === "intl" ? "selected" : ""}>Internacional (${dados.vagas.filter(v => perfilVaga(v) === "intl").length})</option>
-    </select>
     <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder enviadas e descartadas</label>
     <label class="sub"><input type="checkbox" id="novas" ${f.novas ? "checked" : ""}> Só as novas</label>
     <label class="sub"><input type="checkbox" id="descartadas" ${f.descartadas ? "checked" : ""}> Ver descartadas (${dados.descartes.length})</label>
     <span class="sub">${lista.length} vaga(s)${novas ? ` · ${novas} nova(s)` : ""}</span></div>`;
   if (f.descartadas) return barra + listaDescartes();
-  if (!dados.vagas.length) return barra + `<div class="vazio">As vagas do dia chegam quando o PC roda a coleta diária.</div>`;
-  if (!lista.length) return barra + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
-  const linhas = lista.slice(0, f.limite).map(v => `<tr>
+  const topo = cartoesPerfil() + barra;
+  if (!dados.vagas.length) return topo + `<div class="vazio">As vagas do dia chegam quando o PC roda a coleta diária.</div>`;
+  if (f.perfil === "intl" && !dados.vagas.some(v => perfilVaga(v) === "intl"))
+    return topo + `<div class="vazio">As vagas do Perfil 2 chegam depois da próxima rodada diária, que roda o Perfil 2 logo depois do Perfil 1.</div>`;
+  if (!lista.length) return topo + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
+  const linhas = lista.slice(0, f.limite).map(v => `<tr class="perfil-${esc(perfilVaga(v))}">
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
       <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}${
         Number(v.idade_dias) > DIAS_VAGA_ANTIGA ? `<span class="chip atraso" title="Publicada em ${esc(v.publicado_em)}">no ar há ${esc(v.idade_dias)} d</span>` : ""}${
@@ -488,7 +520,7 @@ function abaVagas() {
         <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}${
           perfilVaga(v) === "intl" ? [ELEGIB[v.elegibilidade], TIPO_EMPRESA[v.tipo_empresa] || v.tipo_empresa, INGLES[v.ingles_exigido]]
             .filter(Boolean).map(x => " · " + esc(x)).join("") : ""}</div></td>
-      <td class="sub">${esc(PERFIS[perfilVaga(v)] || perfilVaga(v))}</td>
+      <td>${chipPerfil(perfilVaga(v))}</td>
       <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
       <td class="sub">${esc(v.fonte)}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
@@ -500,12 +532,28 @@ function abaVagas() {
       descarte && descarte.link === v.link ? linhaDescarte() : ""}`).join("");
   const mais = lista.length > f.limite ? `<div class="barra" style="justify-content:center;margin-top:12px">
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
-  return barra + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
+  return topo + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
     <th>Perfil</th><th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
 }
 
+// um cartão por perfil (e "Os dois"): quantas vagas pendentes cada um tem hoje
+function cartoesPerfil() {
+  const f = filtroVagas;
+  const pend = p => dados.vagas.filter(v => (p === "todos" || perfilVaga(v) === p) && !v.status && !v.descartada);
+  const conta = (p, r) => pend(p).filter(v => v.recomendacao === r).length;
+  const cartao = (p, nome, desc) => {
+    const d = p === "todos" ? "" : dataPerfil(p);
+    return `<button class="${p} ${f.perfil === p ? "ativa" : ""}" data-acao="perfil" data-perfil="${p}">
+      <span class="nome">${esc(nome)}</span><span class="sub">${esc(desc)}</span>
+      <span><span class="qtd">${conta(p, "aplicar_agora")}</span> <span class="sub">aplicar agora · ${conta(p, "avaliar")} avaliar</span></span>
+      <span class="sub">${p === "todos" ? "Brasil e internacional juntos" : d ? `relatório de ${dataBR(d)}` : "ainda sem relatório"}</span></button>`;
+  };
+  return `<div class="perfis">${cartao("br", "Perfil 1 · Brasil", PERFIL_DESC.br)}${cartao("intl", "Perfil 2 · Internacional", PERFIL_DESC.intl)}${
+    cartao("todos", "Os dois perfis", "Tudo numa lista só")}</div>`;
+}
+
 function linhaDescarte() {
-  return `<tr class="rascunho"><td colspan="6">
+  return `<tr class="rascunho"><td colspan="7">
     <div class="sub" style="margin-bottom:6px">Por que descartar? O motivo fica salvo para a gente analisar depois.</div>
     <div class="acoes">${dados.motivos_descarte.map(m => `<button class="${descarte.motivo === m ? "primario" : ""}"
       data-acao="motivo" data-motivo="${esc(m)}">${esc(m)}</button>`).join("")}</div>
@@ -524,7 +572,7 @@ function listaDescartes() {
   return resumo + `<div class="rolagem"><table class="tabela"><thead><tr><th>Descartada em</th><th class="num">Nota</th><th>Vaga</th><th>Motivo</th><th>Detalhe</th><th></th></tr></thead><tbody>
     ${ds.map(d => `<tr><td class="sub">${dataBR(d.em)}</td><td class="num"><span class="nota">${nota(d.nota_fit)}</span></td>
       <td class="vaga">${/^https?:/.test(d.link) ? `<a href="${esc(d.link)}" target="_blank" rel="noopener">${esc(d.titulo)}</a>` : esc(d.titulo)}
-        <div class="sub">${esc(d.empresa)}</div></td>
+        <div class="sub">${esc(d.empresa)}${chipPerfil(d.perfil, true)}</div></td>
       <td>${esc(d.motivo)}</td><td class="sub">${esc(d.nota)}</td>
       <td class="num"><button class="discreto" data-acao="desfazer-descarte" data-link="${esc(d.link)}">Desfazer</button></td></tr>`).join("")}
     </tbody></table></div>`;
@@ -538,6 +586,7 @@ conteudo.addEventListener("click", async e => {
   try {
     if (acao === "funil") { filtroFunil = b.dataset.filtro; desenhar(); return; }
     if (acao === "mais") { filtroVagas.limite += 150; desenhar(); return; }
+    if (acao === "perfil") { filtroVagas.perfil = b.dataset.perfil; gravarLocal("perfil", b.dataset.perfil); filtroVagas.limite = 150; desenhar(); return; }
     if (acao === "nova-cand") {
       formCand = { enviada_em: hojeISO() }; desenhar();
       document.querySelector('#form-cand [name="titulo"]').focus(); return;
@@ -598,7 +647,6 @@ conteudo.addEventListener("click", async e => {
 conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
-  if (el.id === "perfil") { filtroVagas.perfil = el.value; gravarLocal("perfil", el.value); filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
   if (el.id === "filtro-lacunas") { filtroLacunas.ver = el.value; lacunaAberta = null; desenhar(); return; }
   if (el.id === "descartadas") { filtroVagas.descartadas = el.checked; desenhar(); return; }

@@ -1771,6 +1771,82 @@ def test_fontes_intl_ajustes():
     print("OK  test_fontes_intl_ajustes")
 
 
+def test_coletores_agencias_latam():
+    """Recruiterflow (HireLATAM), Manatal (Purple) e CloudTask (08/11/2026)."""
+    import datetime as _dt
+
+    from collectors import cloudtask, manatal, recruiterflow
+
+    lista = {"department": [["Marketplaces", [
+        {"apply_link": "hirelatam/jobs/1805", "details": "Mexico , Colombia, Brazil, Latin America", "employment_type":
+         "Full time", "job_id": 1805, "job_name": "Amazon Marketplace Manager", "last_opened": "2026-11-05T17:54:06+0000",
+         "remote_type": "Remote"},
+        {"apply_link": "hirelatam/jobs/1809", "details": "Mexico , Colombia, Honduras", "employment_type": "Full time",
+         "job_id": 1809, "job_name": "E-commerce Operations Assistant", "last_opened": "2026-11-06T15:44:31+0000",
+         "remote_type": "Remote"},
+        {"apply_link": "hirelatam/jobs/1810", "details": "Brazil", "job_id": 1810, "job_name": "Remote Accountant",
+         "remote_type": "Remote"}]]],
+        "location": [["Brazil", [{"job_id": 1805, "job_name": "Amazon Marketplace Manager"}]]]}
+    html = ("<script>$('#x').hide();</script><script type=\"text/javascript\">\n  window.jobsList = "
+            + json.dumps(lista) + ";\n  window.viewOpportunitiesBtnColor = '#fff';</script>")
+    ld = {"@type": "JobPosting", "description": "<p>HireLatam is a premier recruitment agency.</p><p>Job Title: Amazon "
+          "Marketplace Manager</p><p>Run Seller Central.</p><p>Application Disclaimer: blah</p>"}
+    pagina = f'<script type="application/ld+json">{json.dumps(ld)}</script><div id="react-root"></div>'
+    with patch("collectors.recruiterflow.requests.get", side_effect=[_FakeResp(None, text=html), _FakeResp(None, text=pagina)]) as m, \
+            patch("collectors.recruiterflow._cache.descricao", side_effect=lambda chave, buscar: buscar()):
+        jobs = recruiterflow.fetch_recruiterflow("hirelatam", "HireLATAM", term_filter=["marketplace", "operations"])
+    assert m.call_args_list[0].args[0] == "https://recruiterflow.com/hirelatam/jobs"
+    # Honduras/México/Colômbia sem Brasil fica de fora; "Accountant" cai no título
+    assert [j["titulo"] for j in jobs] == ["Amazon Marketplace Manager"]
+    j = jobs[0]
+    assert j["link"] == "https://recruiterflow.com/hirelatam/jobs/1805" and j["publicado_em"] == "2026-11-05"
+    assert j["cidade"] == "Remoto — Mexico, Colombia, Brazil, Latin America" and j["remoto"]
+    assert j["descricao"].startswith("Job Title: Amazon") and "Disclaimer" not in j["descricao"] and "premier" not in j["descricao"]
+
+    pg1 = {"count": 3, "next": "https://core.api.manatal.com/open/v3/career-page/purple-careers/jobs/?page=2",
+           "results": [{"id": 1, "hash": "AAA", "position_name": "Operations Manager (Remote | LATAM Only)",
+                        "description": "<p>Run ops</p>", "is_remote": True, "location_display": ""},
+                       {"id": 2, "hash": "BBB", "position_name": "Revenue Manager (Remote | US Only)",
+                        "description": "<p>x</p>", "is_remote": True}]}
+    pg2 = {"count": 3, "next": None, "results": [{"id": 3, "hash": "CCC", "position_name": "Graphic Designer",
+                                                  "is_remote": True}]}
+    with patch("collectors.manatal.requests.get", side_effect=[_FakeResp(pg1), _FakeResp(pg2)]) as m:
+        jobs = manatal.fetch_manatal("purple-careers", "Purple Hiring", term_filter=["operations", "revenue"])
+    assert m.call_args_list[1].args[0].startswith("https://core.api.manatal.com/")
+    assert [j["titulo"] for j in jobs] == ["Operations Manager (Remote | LATAM Only)"]
+    assert jobs[0]["link"] == "https://www.careers-page.com/purple-careers/job/AAA"
+
+    hits = {"results": [{"nbHits": 4, "page": 0, "nbPages": 1, "hits": [
+        {"id": "a1", "title_sem": "GTM Engineer (Outbound Automation & AI Campaign Systems)", "role": "GTM Engineer",
+         "role_category": "Sales", "job_to_be_dones": ["Clay tables", "Cold email"], "software_skills": ["Clay"],
+         "work_arrangements": ["Remote"], "created_at": "2026-11-01T10:00:00Z", "price": "$2,500–$2,999",
+         "page_url": "/find-jobs/gtm-engineer/service-type/a1"},
+        {"id": "a2", "title_sem": "Growth Operations Lead – Medellín (On-Site)", "work_arrangements": ["Remote"],
+         "created_at": "2026-11-01T10:00:00Z"},
+        {"id": "a3", "title_sem": "Revenue Operations Analyst", "work_arrangements": ["Remote"],
+         "created_at": "2025-01-10T10:00:00Z"},
+        {"id": "a4", "title_sem": "Sales Operations Specialist", "work_arrangements": ["On-site"],
+         "created_at": "2026-11-01T10:00:00Z"}]}]}
+    with patch("collectors.cloudtask.requests.post", return_value=_FakeResp(hits)) as m:
+        jobs = cloudtask.fetch_cloudtask(term_filter=["gtm", "operations"], hoje=_dt.date(2026, 11, 8))
+    assert m.call_args.kwargs["json"]["requests"][0]["indexName"] == "job_posts"
+    assert [j["titulo"] for j in jobs] == ["GTM Engineer (Outbound Automation & AI Campaign Systems)"]
+    c = jobs[0]
+    assert c["link"] == "https://app.cloudtask.com/find-jobs/gtm-engineer/service-type/a1" and c["salario"] == "$2,500–$2,999 /mês"
+    assert "Clay tables" in c["descricao"] and "América Latina" in c["descricao"]
+
+    import yaml as _yaml
+
+    import screen
+    config = _yaml.safe_load((Path(__file__).parent / "config_intl.yaml").read_text(encoding="utf-8"))
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
+    fontes = {f for f, _, _ in tarefas}
+    assert {"recruiterflow", "manatal", "cloudtask"} <= fontes
+    print("OK  test_coletores_agencias_latam")
+
+
 def test_coletores_pme_e_gtmdaily():
     """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
     from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
@@ -1908,4 +1984,5 @@ if __name__ == "__main__":
     test_coletores_pme_e_gtmdaily()
     test_painel_coletores()
     test_fontes_intl_ajustes()
+    test_coletores_agencias_latam()
     print("\nTodos os testes offline passaram.")

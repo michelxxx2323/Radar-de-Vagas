@@ -60,6 +60,7 @@ _PAIS_CITADO = re.compile(r"\b(south africa|philippines|india|pakistan|egypt|ken
                           r"united kingdom|united states|canada|mexico|colombia|argentina|peru|chile|costa rica|"
                           r"cardiff|london)\b", re.I)
 _SIGLA_CITADA = re.compile(r"\b(US|USA|U\.S\.|UK|EU|EMEA|APAC)\b")
+_FUSO = re.compile(r"\b(with|during|in|on|aligned with|overlap with|overlapping)\b[^,;()]*?\b(business hours|hours|time ?zones?|time)\b", re.I)
 # (sem US/UK/Canada: "our US-based client" é o normal e não restringe o candidato)
 _BASEADO = re.compile(r"\b(philippines|philippine|south africa|india|pakistan|eastern europe|"
                       r"colombia|mexico|argentina)[- ]based\b", re.I)
@@ -121,6 +122,8 @@ def restringe_fora(html: str) -> bool:
     valores = [m.group(1) for m in _LOCAL_DESC.finditer(texto)]
     if any(_CITA_BR.search(v) or aceita_brasil(v) for v in valores):
         return False
+    # "Remote with US business hours": o país do fuso não restringe o candidato
+    valores = [_FUSO.sub(" ", v) for v in valores]
     if any(_PAIS_CITADO.search(v) or _SIGLA_CITADA.search(v) for v in valores):
         return True
     return bool(_BASEADO.search(texto)) and not _CITA_BR.search(texto)

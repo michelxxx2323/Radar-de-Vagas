@@ -2057,7 +2057,8 @@ def test_coletores_agencias_dtc():
     for ok in ["<p>Location: Fully remote</p>", "<p>Work Location : Remote</p>",
                "<p>Location of Search : Latin America or USA</p><p>Work Location : Remote</p>",
                "<p>Priority Location: Our most recommended focus country is determined by our talent pool</p>",
-               "<p>Search Location: South Africa, LATAM, Philippines</p>"]:
+               "<p>Search Location: South Africa, LATAM, Philippines</p>",
+               "<p>Location: Remote with US business hours</p>"]:
         assert not somewhere.restringe_fora(ok), ok
     assert somewhere.restringe_fora("<p>Priority Location: UK</p><p>Location: Remote</p>")
     assert somewhere.restringe_fora("<p>Search Location: South Africa or the Philippines</p>")

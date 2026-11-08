@@ -19,6 +19,7 @@ isso o screen.py aplica o filtro de título (title_keywords) nestas vagas.
 """
 from __future__ import annotations
 
+import datetime as dt
 import threading
 import time
 
@@ -63,10 +64,28 @@ def _aceita_brasil(j: dict) -> bool:
 # rodada: as buscas seguintes desistem na hora em vez de esperar de novo
 # (07/11/2026: 26 buscas em 429, e a rodada ficou ~30 min parada no Workable).
 _BLOQUEADO = threading.Event()
+# Retry-After acima disto é bloqueio longo do IP (08/11/2026: 8082 s, ~2h15,
+# já na 1ª busca do dia): esperar não adianta, a busca desiste na hora e o
+# horário de liberação vai pro aviso e pra aba "Coletores" do painel
+ESPERA_MAX_S = 60
+_LIBERA_EM = [""]
 
 
 def resetar_bloqueio() -> None:
     _BLOQUEADO.clear()
+    _LIBERA_EM[0] = ""
+
+
+def _erro_bloqueio() -> requests.HTTPError:
+    quando = f"; libera por volta de {_LIBERA_EM[0]}" if _LIBERA_EM[0] else ""
+    return requests.HTTPError(f"429 Too Many Requests (Workable bloqueou esta rodada{quando}; "
+                              "buscas seguintes puladas)")
+
+
+def _anotar_liberacao(segundos: int) -> None:
+    libera = dt.datetime.now() + dt.timedelta(seconds=segundos)
+    formato = "%H:%M" if libera.date() == dt.date.today() else "%d/%m %H:%M"
+    _LIBERA_EM[0] = libera.strftime(formato)
 
 
 # Intervalo mínimo entre duas chamadas ao portal, de qualquer busca (a busca já
@@ -86,20 +105,25 @@ def _esperar_vez() -> None:
 
 def _get(params: dict, tentativas: int = 3):
     """GET com espera quando o portal responde 429 (muitas buscas seguidas).
-    Respeita o Retry-After (até 60 s); sem ele, espera 15 s e 30 s."""
+    Respeita o Retry-After (até 60 s); sem ele, espera 15 s e 30 s. Retry-After
+    maior que isso: bloqueio longo, desiste na hora."""
     if _BLOQUEADO.is_set():
-        raise requests.HTTPError("429 Too Many Requests (Workable bloqueou esta rodada; buscas seguintes puladas)")
+        raise _erro_bloqueio()
     espera = 15
     for i in range(tentativas):
         _esperar_vez()
         resp = requests.get(WORKABLE_URL, params=params, headers=HEADERS, timeout=30)
         if resp.status_code != 429:
             return resp
+        pedido = str((getattr(resp, "headers", None) or {}).get("Retry-After", "")).strip()
+        if pedido.isdigit() and int(pedido) > ESPERA_MAX_S:
+            _anotar_liberacao(int(pedido))
+            _BLOQUEADO.set()
+            raise _erro_bloqueio()
         if i == tentativas - 1:
             _BLOQUEADO.set()
             return resp
-        pedido = str((getattr(resp, "headers", None) or {}).get("Retry-After", "")).strip()
-        time.sleep(min(int(pedido), 60) if pedido.isdigit() else espera)
+        time.sleep(int(pedido) if pedido.isdigit() else espera)
         espera *= 2
     return resp
 

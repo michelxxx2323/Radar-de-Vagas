@@ -1489,6 +1489,22 @@ def test_intl_coletores_novos():
             pass
         assert m.call_count == n  # bloqueado: nem chamou o portal
     workable.resetar_bloqueio()
+    # Retry-After longo (bloqueio do IP por horas): desiste na 1ª resposta, sem
+    # esperar, e a mensagem (que vai pro painel) diz quando libera
+    longo = _FakeResp({}, 429)
+    longo.headers = {"Retry-After": "8082"}
+    with patch("collectors.workable.requests.get", return_value=longo) as m, \
+            patch("collectors.workable.time.sleep") as dorme:
+        for termo in ("revops", "clay"):
+            try:
+                workable.fetch_workable(termo)
+                raise AssertionError("devia falhar")
+            except workable.requests.HTTPError as e:
+                assert "libera por volta de" in str(e), e
+        # só o intervalo normal entre chamadas, nenhuma espera de 429
+        assert m.call_count == 1 and all(c.args[0] <= workable.INTERVALO_S for c in dorme.call_args_list)
+    workable.resetar_bloqueio()
+    assert workable._LIBERA_EM[0] == ""
 
     # mesmo anúncio com códigos diferentes conta uma vez no Perfil 2
     import screen

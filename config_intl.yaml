@@ -224,8 +224,25 @@ sources:
   # errada, só a contagem de vagas confirma.
   workable_contas:
     enabled: true
+    # Testadas em 08/11/2026 (únicas / passam no título e aceitam Brasil). A
+    # mesma vaga repetida com códigos diferentes conta uma vez no relatório.
     empresas:
-      - {empresa: "Hire Overseas", id: "hire-overseas"}   # 109 vagas em 07/11/2026
+      # LatAm
+      - {empresa: "Remote Talent LATAM", id: "remote-talent-latam"}          # 32 / 5
+      - {empresa: "Zipdev", id: "zipdev"}                                    # 11 / 1
+      - {empresa: "Pavago", id: "pavago"}                                    # 995 / 49
+      - {empresa: "Freelance Latin America", id: "freelance-latin-america"}  # 25 / 0 (hoje nenhuma lista o Brasil)
+      # globais
+      - {empresa: "Hire Overseas", id: "hire-overseas"}                      # 109 / 9
+    # Ficaram de fora em 08/11/2026:
+    # - existem, mas sem vaga do perfil: winning-assistants (VA, Filipinas) e
+    #   assistant-launch;
+    # - 0 vagas, conta não confirmada: we-clone-you, cross-border-talents,
+    #   superstaff, workana, athyna, south, near, cloudtask, simera, howdy,
+    #   revelo, boldly, magic, wing-assistant;
+    # - "pearl" é a conta de outra empresa;
+    # - 404, não existe com esse id: outsourcing-advantage, hireinsouth,
+    #   virtual-latinos, tecla, bluecoding, oowlish, levelup-latam.
 
   # Busca agregada do Workable (jobs.workable.com): não é feita para varredura.
   # Desligada em 07/11/2026: mesmo com 8 termos, 1 busca por vez e 2 s entre

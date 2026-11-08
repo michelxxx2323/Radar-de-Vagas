@@ -32,6 +32,7 @@ from pathlib import Path
 import requests
 import yaml
 
+from collectors.activatetalent import fetch_activatetalent
 from collectors.amazon import fetch_amazon
 from collectors.ashby import fetch_ashby
 from collectors.bebee import fetch_bebee
@@ -442,6 +443,11 @@ def collect_jobs(config: dict) -> list[dict]:
     if on("cloudtask"):
         tarefa("cloudtask", "CloudTask falhou", lambda: fetch_cloudtask(
             term_filter=titulo_ok, limit=company_limit, max_dias=sources["cloudtask"].get("max_dias", 120)))
+    # Activate Talent: a página /careers traz a lista inteira; a página da vaga
+    # (descrição) só das que passam no título e no local (08/11/2026)
+    if on("activatetalent"):
+        tarefa("activatetalent", "Activate Talent falhou", lambda: fetch_activatetalent(
+            term_filter=titulo_ok, limit=company_limit, pausa=sources["activatetalent"].get("pausa", 1.0)))
 
     if on("gtmdaily"):
         tarefa("gtmdaily", "GTM Daily falhou", lambda: fetch_gtmdaily(

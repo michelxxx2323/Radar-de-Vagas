@@ -1868,6 +1868,89 @@ def test_coletores_agencias_latam():
     print("OK  test_coletores_agencias_latam")
 
 
+def test_coletor_activatetalent():
+    """Activate Talent: lista inteira no payload RSC do Next.js e descrição no
+    JSON-LD da página da vaga (08/11/2026)."""
+    import perfil_intl
+    import screen
+    from collectors import activatetalent
+
+    def vaga(id_, titulo, local, depto="Operations"):
+        return {"id": id_, "jobTitle": titulo, "department": depto, "sourcingLocation": local,
+                "employmentType": "FULL_TIME", "employmentLabel": "Full Time", "seniorityLevel": "Mid-level",
+                "workSchedule": "PST"}
+    posicoes = [vaga("atv01", "Amazon Marketplace Manager", "Global"),
+                vaga("atv02", "Amazon Brand Operations Assistant", "Philippines"),
+                vaga("atv03", "Ecommerce Operations Specialist", None),
+                vaga("atv04", "Retail Operations Analyst", None),
+                vaga("atv05", "Senior Analytics Engineer", "Global", "Engineering / Technology"),
+                vaga("atv06", "Growth Lead", "Global, South Africa, Europe"),
+                vaga("atv07", "Operations Coordinator", "colombia or argentina"),
+                vaga("atv08", "TikTok Shop Operations Lead", "Philippines/LatAm")]
+    # o payload real vem picado em vários self.__next_f.push, cortando o JSON no meio
+    rsc = '1f:["$","$L23",null,{"positions":' + json.dumps(posicoes) + '}]\n'
+    meio = len(rsc) // 2
+    lista = "".join(f'<script>self.__next_f.push([1,{json.dumps(p)}])</script>' for p in (rsc[:meio], rsc[meio:]))
+    html = ('<html><body><a href="/careers/atv01">Amazon Marketplace Manager</a><button>Show all <!-- -->16<!-- --> roles'
+            '</button><script>(self.__next_f=self.__next_f||[]).push([0])</script>' + lista + '</body></html>')
+    assert len(activatetalent.ler_lista(html)) == 8
+
+    def pagina(desc, data="2026-10-19"):
+        ld = {"@type": "JobPosting", "title": "x", "description": desc, "datePosted": data,
+              "applicantLocationRequirements": {"@type": "Country", "name": "United States"}}
+        return f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    paginas = {"atv01": pagina("Run Seller Central for US brands.\r\n\r\n- Own the P&L"),
+               "atv03": pagina("Remote role open to candidates in Latin America."),
+               "atv04": pagina("Work hours EST."),
+               "atv06": pagina("Scale paid growth."),
+               "atv08": pagina("Run TikTok Shop ops.")}
+    urls = []
+
+    def get(url, **kw):
+        urls.append(url)
+        if url.endswith("/careers"):
+            return _FakeResp(None, text=html)
+        return _FakeResp(None, text=paginas[url.rsplit("/", 1)[1]])
+    with patch("collectors.activatetalent.requests.get", side_effect=get), \
+            patch("collectors.activatetalent.time.sleep") as dorme:
+        jobs = activatetalent.fetch_activatetalent(term_filter=["amazon", "operations", "growth", "retail"], pausa=1.0)
+    # Philippines e "colombia or argentina" saem sem baixar a página; null sem
+    # LATAM na descrição sai depois de ler a página; "Engineer" cai no título
+    assert [j["titulo"] for j in jobs] == ["Amazon Marketplace Manager", "Ecommerce Operations Specialist",
+                                           "Growth Lead", "TikTok Shop Operations Lead"], [j["titulo"] for j in jobs]
+    assert urls[0] == "https://activatetalent.app/careers" and len(urls) == 6 and dorme.call_count == 4
+    a = jobs[0]
+    assert a["link"] == "https://activatetalent.app/careers/atv01" and a["fonte"] == "activatetalent"
+    assert a["cidade"] == "Remoto — Global" and a["remoto"] and a["publicado_em"] == "2026-10-19"
+    assert "Senioridade: Mid-level." in a["descricao"] and "Own the P&L" in a["descricao"]
+    assert jobs[1]["cidade"] == "Remoto" and jobs[2]["cidade"] == "Remoto — Global"
+    assert "Contrata em: Global, South Africa, Europe." in jobs[2]["descricao"]
+    assert jobs[3]["cidade"] == "Remoto — LatAm"
+    # o filtro de geografia do Perfil 2 aceita todas, e nenhuma sai como "fora do Brasil"
+    for j in jobs:
+        assert perfil_intl.checar_elegibilidade(j)[0] == "sim", (j["titulo"], perfil_intl.checar_elegibilidade(j))
+        assert not screen.fora_do_brasil(j["cidade"], True, j["descricao"])
+
+    # 2ª rodada: as descrições vêm do cache, só a lista é baixada
+    urls.clear()
+    with patch("collectors.activatetalent.requests.get", side_effect=get), \
+            patch("collectors.activatetalent.time.sleep"):
+        de_novo = activatetalent.fetch_activatetalent(term_filter=["amazon", "operations", "growth", "retail"])
+    assert urls == ["https://activatetalent.app/careers"], urls
+    assert [j["descricao"] for j in de_novo] == [j["descricao"] for j in jobs]
+
+    import yaml as _yaml
+    config = _yaml.safe_load((Path(__file__).parent / "config_intl.yaml").read_text(encoding="utf-8"))
+    assert config["sources"]["activatetalent"]["enabled"]
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
+    assert "activatetalent" in {f for f, _, _ in tarefas}
+    painel = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'activatetalent: "Activate Talent"' in painel
+    print("OK  test_coletor_activatetalent")
+
+
 def test_coletores_pme_e_gtmdaily():
     """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
     from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
@@ -2006,4 +2089,5 @@ if __name__ == "__main__":
     test_painel_coletores()
     test_fontes_intl_ajustes()
     test_coletores_agencias_latam()
+    test_coletor_activatetalent()
     print("\nTodos os testes offline passaram.")

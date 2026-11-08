@@ -2038,6 +2038,29 @@ def test_coletores_agencias_dtc():
     assert w["link"] == "https://somewhere.com/jobs/apply?slug=" + novo + "abc" and w["publicado_em"] == "2026-11-05"
     assert w["cidade"] == "Remoto — LATAM" and "Own Amazon and Shopify" in w["descricao"]
     assert somewhere.criada_em("1793889433656-x") == _dt.date(2026, 11, 5)
+    # títulos e locais da rodada real de 08/11/2026
+    for sujo, limpo in [("Account Manager, Investor Services - [CG] 67559832101", "Account Manager, Investor Services"),
+                        ("64792899631 -Accounts Payable Specialist", "Accounts Payable Specialist"),
+                        ("Tax Operations & Workflow Coordinator - 21992", "Tax Operations & Workflow Coordinator"),
+                        ("C.G - eCommerce Content Coordinator", "eCommerce Content Coordinator"),
+                        ("[CG] Client Success & Operations Coordinator", "Client Success & Operations Coordinator"),
+                        ("Accounts Payable Analyst - ", "Accounts Payable Analyst"),
+                        ("Assistant Controller | AI Automation 64248551231", "Assistant Controller | AI Automation"),
+                        ("Amazon PPC Manager (1) - 20340", "Amazon PPC Manager"),
+                        ("Head of Growth (LATAM)", "Head of Growth (LATAM)")]:
+        assert somewhere.limpar_titulo(sujo) == limpo, (sujo, somewhere.limpar_titulo(sujo))
+    assert somewhere.restringe_fora("<p><strong>Search Location:</strong> South Africa, Eastern Europe, US, UK and Canada</p>")
+    assert somewhere.restringe_fora("<p>Fully remote, Philippines-based</p>")
+    assert not somewhere.restringe_fora("<p>Location: LATAM</p><p>Join our client's team</p>")
+    assert not somewhere.restringe_fora("<p>Our US-based client sells on Amazon.</p>")
+    pg_loc = [{"result": {"data": {"json": {"jobs": [
+        {**vaga_sw(9, "Marketing Operations Specialist - 21878", novo + "mo"),
+         "job_description_text": "<p>Fully remote, Philippines-based</p>"},
+        vaga_sw(10, "Ecommerce Operations Manager - [CG] 67559832101", novo + "eo")],
+        "nextCursor": None, "hasNextPage": False}}}}]
+    with patch("collectors.somewhere.requests.get", return_value=_FakeResp(pg_loc)):
+        jobs_loc = somewhere.fetch_somewhere(term_filter=["operations"], hoje=_dt.date(2026, 11, 8))
+    assert [j["titulo"] for j in jobs_loc] == ["Ecommerce Operations Manager"], [j["titulo"] for j in jobs_loc]
 
     # --- TrackerRMS (Proppel) ---
     def post(id_, titulo, local, data="02 November 26"):
@@ -2079,6 +2102,25 @@ def test_coletores_agencias_dtc():
     for j in [w, p, c]:
         assert perfil_intl.checar_elegibilidade(j)[0] == "sim", (j["titulo"], perfil_intl.checar_elegibilidade(j))
         assert not screen.fora_do_brasil(j["cidade"], True, j["descricao"])
+
+    # Latamforce: is_remote=false e local vazio, mas o texto diz "100% Remote ... LATAM"
+    from collectors import manatal, workable_contas
+    lf = {"count": 2, "next": None, "results": [
+        {"id": 7, "hash": "LF7", "position_name": "Retail Media Specialist (Amazon/Walmart ads) - Remote Latam",
+         "description": "<p>100% Remote. Based in LATAM.</p>", "is_remote": None, "location_display": ""},
+        {"id": 8, "hash": "LF8", "position_name": "Retail Operations Analyst", "description": "<p>Office in Miami.</p>",
+         "is_remote": False, "location_display": ""}]}
+    with patch("collectors.manatal.requests.get", return_value=_FakeResp(lf)):
+        jobs = manatal.fetch_manatal("latamforce-llc", "Latamforce", term_filter=["retail"])
+    assert [(j["titulo"][:12], j["remoto"]) for j in jobs] == [("Retail Media", True), ("Retail Opera", False)]
+    assert jobs[0]["cidade"] == "Remoto"
+    # Pearl Talent: o nome da agência sai do começo do título
+    wk = {"name": "Pearl", "jobs": [
+        {"title": "Pearl Talent- Finance Operations Associate - I021", "shortcode": "A1", "telecommuting": True,
+         "country": "Brazil", "url": "https://apply.workable.com/pearltalent/j/A1/", "description": "<p>x</p>"}]}
+    with patch("collectors.workable_contas.requests.get", return_value=_FakeResp(wk)):
+        jobs = workable_contas.fetch_workable_conta("pearltalent", "Pearl Talent", term_filter=["operations"])
+    assert jobs[0]["titulo"] == "Finance Operations Associate - I021", jobs[0]["titulo"]
 
     import yaml as _yaml
     config = _yaml.safe_load((Path(__file__).parent / "config_intl.yaml").read_text(encoding="utf-8"))

@@ -28,6 +28,7 @@ Página pública da vaga: https://somewhere.com/jobs/apply?slug=<slug>.
 from __future__ import annotations
 
 import datetime as dt
+import html as _html
 import json
 import re
 import time
@@ -40,8 +41,22 @@ API = "https://salarycalculator.somewheretypingtest.com/api/trpc/job.list"
 PAGINA = "https://somewhere.com/jobs/apply?slug={slug}"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0 Safari/537.36",
       "Accept": "application/json"}
-_CODIGO_FIM = re.compile(r"\s*[-–|]\s*\d{8,}\s*$")
+# lixo nos títulos (rodada real de 08/11/2026): "Account Manager - [CG] 67559832101",
+# "64792899631 -Accounts Payable Specialist", "Tax Coordinator - 21992",
+# "C.G - eCommerce Content Coordinator", "Amazon PPC Manager (1) - 20340", "Analyst - "
+_CODIGO_INICIO = re.compile(r"^\s*\d{8,}\s*[-–|]?\s*")
+_CODIGO_FIM = re.compile(r"\s*[-–|]?\s*(\[\s*C\.?G\.?\s*\]\s*)?\d{5,}\s*$", re.I)
+_TAG_INICIO = re.compile(r"^\s*(\[\s*C\.?G\.?\s*\]|C\.G\.?\s*[-–:])\s*", re.I)
+_TAG_FIM = re.compile(r"\s*(\[\s*C\.?G\.?\s*\]|\(\d\))\s*$", re.I)
 _PREFIXO_SU = re.compile(r"^\s*SU\s*[-–:]\s*", re.I)
+# a descrição às vezes restringe o país mesmo com LATAM no campo country:
+# "Search Location: South Africa, Eastern Europe, US, UK and Canada",
+# "Fully remote, Philippines-based"
+_LOCAL_DESC = re.compile(r"\b(?:search location|candidate location|hiring location|location)\s*:\s*([^\n]{2,120})", re.I)
+# (sem US/UK/Canada: "our US-based client" é o normal e não restringe o candidato)
+_BASEADO = re.compile(r"\b(philippines|philippine|south africa|india|pakistan|eastern europe|"
+                      r"colombia|mexico|argentina)[- ]based\b", re.I)
+_CITA_BR = re.compile(r"\b(brazil|brasil|latam|latin america|south america)\b", re.I)
 
 
 def _entrada(cursor: int, paises: list[str], limite: int) -> str:
@@ -71,7 +86,33 @@ def criada_em(slug: str) -> dt.date | None:
 
 
 def limpar_titulo(nome: str) -> str:
-    return _CODIGO_FIM.sub("", nome or "").strip()
+    t = nome or ""
+    for _ in range(3):  # "Analyst (1) - 20340", "[CG] 6755...": uma passada tira um pedaço
+        antes = t
+        t = _CODIGO_INICIO.sub("", t)
+        t = _CODIGO_FIM.sub("", t)
+        t = _TAG_INICIO.sub("", t)
+        t = _TAG_FIM.sub("", t)
+        t = re.sub(r"\s*[-–|:]\s*$", "", t).strip()
+        if t == antes:
+            break
+    return t
+
+
+def _texto_linhas(html: str) -> str:
+    """O texto da descrição com uma linha por bloco (para achar "Location: ...")."""
+    texto = _html.unescape(re.sub(r"(?i)<br\s*/?>|</(p|li|div|h\d)>", "\n", html or ""))
+    texto = re.sub(r"<[^>]+>", " ", texto)
+    return "\n".join(re.sub(r"\s+", " ", linha).strip() for linha in texto.splitlines())
+
+
+def restringe_fora(html: str) -> bool:
+    """True se a descrição limita a contratação a países sem Brasil/LATAM."""
+    texto = _texto_linhas(html)
+    m = _LOCAL_DESC.search(texto)
+    if m and not aceita_brasil(m.group(1)) and not _CITA_BR.search(m.group(1)):
+        return True
+    return bool(_BASEADO.search(texto)) and not _CITA_BR.search(texto)
 
 
 def fetch_somewhere(term_filter=None, limit: int | None = None, paises: list[str] | None = None,
@@ -112,6 +153,8 @@ def fetch_somewhere(term_filter=None, limit: int | None = None, paises: list[str
         aceitos = [p.strip() for p in local.split(",") if p.strip() and aceita_brasil(p.strip())]
         descricao = strip_html(v.get("job_description_text") or "")
         if not aceitos and not aceita_brasil(local, descricao):
+            continue
+        if restringe_fora(v.get("job_description_text") or ""):
             continue
         cabecalho = [f"Área: {v['job_industry']}." if v.get("job_industry") else "",
                      f"Contrato: {v['job_type']}." if v.get("job_type") else "",

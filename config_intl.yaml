@@ -234,13 +234,16 @@ sources:
       - {empresa: "Freelance Latin America", id: "freelance-latin-america"}  # 25 / 0 (hoje nenhuma lista o Brasil)
       # globais
       - {empresa: "Hire Overseas", id: "hire-overseas"}                      # 109 / 9
+      # agências de staffing para marcas DTC/e-commerce (08/11/2026)
+      - {empresa: "HireHawk", id: "hirehawk"}                                # cliente: True Classic
+      - {empresa: "Pearl Talent", id: "pearltalent"}                         # a conta "pearl" é de outra empresa
     # Ficaram de fora em 08/11/2026:
     # - existem, mas sem vaga do perfil: winning-assistants (VA, Filipinas) e
     #   assistant-launch;
     # - 0 vagas, conta não confirmada: we-clone-you, cross-border-talents,
     #   superstaff, workana, athyna, south, near, cloudtask, simera, howdy,
     #   revelo, boldly, magic, wing-assistant;
-    # - "pearl" é a conta de outra empresa;
+    # - "pearl" é a conta de outra empresa (a da Pearl Talent é "pearltalent");
     # - 404, não existe com esse id: outsourcing-advantage, hireinsouth,
     #   virtual-latinos, tecla, bluecoding, oowlish, levelup-latam.
 
@@ -256,6 +259,7 @@ sources:
     enabled: true
     empresas:
       - {empresa: "Purple Hiring", id: "purple-careers"}  # 8 vagas, todas LATAM Only
+      - {empresa: "Latamforce", id: "latamforce-llc"}     # 10 vagas LATAM (08/11/2026)
   cloudtask:
     enabled: true
     max_dias: 120            # o board tem vagas de 2024-2025 ainda no ar
@@ -265,6 +269,25 @@ sources:
   activatetalent:
     enabled: true
     pausa: 1.0               # segundos entre as páginas de vaga (só na 1ª vez; depois vem do cache)
+  # Agências de staffing para marcas DTC/e-commerce dos EUA (08/11/2026, pedido
+  # do Michel: "como a Activate Talent"). HireHawk e Pearl Talent estão em
+  # workable_contas e a Latamforce em manatal.
+  # Constant Hire: recruta só para marcas DTC; fica a remota LATAM (~7 de 46)
+  constanthire:
+    enabled: true
+    pausa: 1.0               # segundos entre as páginas de vaga (só na 1ª vez; depois vem do cache)
+  # Somewhere (ex-Support Shepherd): ~800 vagas LATAM, 100 por requisição
+  somewhere:
+    enabled: true
+    paises: ["LATAM"]
+    max_dias: 120            # há vagas de 2024 ainda no ar (a data vem do slug)
+    incluir_banco_talentos: false  # "SU - ..." é banco de talentos permanente
+    pausa: 1.0
+  # TrackerRMS (portal "Lite"): Proppel, LATAM para Jones Road Beauty, Pvolve...
+  trackerrms:
+    enabled: true
+    empresas:
+      - {empresa: "Proppel", id: "weareproppel"}   # 39 vagas em 08/11/2026
 
   # Busca agregada do Workable (jobs.workable.com): não é feita para varredura.
   # Desligada em 07/11/2026: mesmo com 8 termos, 1 busca por vez e 2 s entre

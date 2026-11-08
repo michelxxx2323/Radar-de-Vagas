@@ -24,6 +24,8 @@ Config: sources.workable_contas.empresas: [{empresa: "Nome", id: "<conta>"}].
 """
 from __future__ import annotations
 
+import re
+
 import requests
 
 from ._util import aceita_brasil, registrar_board, strip_html, title_matches
@@ -64,6 +66,9 @@ def fetch_workable_conta(id_: str, empresa: str = "", term_filter=None, limit: i
         if limit is not None and len(jobs) >= limit:
             break
         titulo = (j.get("title") or "").strip()
+        # "Pearl Talent - Customer Success Manager": tira o nome da própria agência
+        if empresa:
+            titulo = re.sub(rf"^\s*{re.escape(empresa)}\s*[-–:|]\s*", "", titulo, flags=re.I).strip() or titulo
         if not titulo or (term_filter is not None and not title_matches(titulo, term_filter)):
             continue
         remoto = bool(j.get("telecommuting"))

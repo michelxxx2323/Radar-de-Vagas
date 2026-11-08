@@ -438,7 +438,8 @@ const SITUACAO = {
 const ORDEM_SITUACAO = ["erro", "vazia", "parcial", "ok", "sem_lista", "desligada"];
 const NOME_FONTE = { weworkremotely: "We Work Remotely", remoteok: "Remote OK", remoteio: "Remote.io",
   gtmdaily: "GTM Daily", workingnomads: "Working Nomads", mercadolivre: "Mercado Livre", smartrecruiters: "SmartRecruiters",
-  didi: "DiDi/99", tiktok: "TikTok", inhire: "InHire", bebee: "beBee", activatetalent: "Activate Talent" };
+  didi: "DiDi/99", tiktok: "TikTok", inhire: "InHire", bebee: "beBee", activatetalent: "Activate Talent",
+  constanthire: "Constant Hire", somewhere: "Somewhere", trackerrms: "TrackerRMS" };
 function nomeFonte(f) { return NOME_FONTE[f] || f.charAt(0).toUpperCase() + f.slice(1); }
 function problemas(c) { return (c.fontes || []).filter(f => ["erro", "vazia", "parcial"].includes(f.status)); }
 function tempo(seg) { seg = Math.round(Number(seg) || 0); return seg < 60 ? `${seg} s` : `${Math.floor(seg / 60)} min${seg % 60 ? ` ${seg % 60} s` : ""}`; }

@@ -1951,6 +1951,202 @@ def test_coletor_activatetalent():
     print("OK  test_coletor_activatetalent")
 
 
+def test_coletores_agencias_dtc():
+    """Agências de staffing para marcas DTC (08/11/2026): Constant Hire (HTML
+    do Webflow), Somewhere (API tRPC), TrackerRMS (Proppel) e as contas novas
+    de Workable/Manatal no config."""
+    import datetime as _dt
+
+    import perfil_intl
+    import screen
+    from collectors import constanthire, somewhere, trackerrms
+
+    # --- Constant Hire ---
+    def card(slug, titulo, modelo, pais, cidade="", data="2026-10-16"):
+        return (f'<div role="listitem" class="job w-dyn-item" job-workspace="{modelo}" job-name="{titulo}" '
+                f'job-location-country="{pais}" job-location-city="{cidade}" job-category="Growth">'
+                f'<div job-added-date="{data}" class="posted-date">Posted</div><h3 class="job-title">{titulo}</h3>'
+                f'<div class="opcacity-80">Pet wellness brand</div><div class="salry-bonus"><div class="number">90k</div></div>'
+                f'<a job-url="" href="/ecommerce-jobs/{slug}" class="link">View Role</a></div>')
+    lista = ('<div class="w-dyn-items">' + card("ops-latam", "Operations Manager", "REMOTE", "LATAM")
+             + card("growth-latam-ee", "Growth Marketing Manager", "REMOTE", "LATAM; Eastern Europe")
+             + card("dir-ecom-usa", "Director of E-Commerce", "REMOTE", "USA")
+             + card("growth-la", "Growth Manager", "HYBRID", "USA", "Los Angeles")
+             + card("vp-cx", "VP of CX Operations", "REMOTE", "Eastern EU/UK")
+             + card("video", "Video Editor", "REMOTE", "LATAM")
+             + card("ops-latam", "Operations Manager", "REMOTE", "LATAM") + '</div>')
+    assert len(constanthire.ler_lista(lista)) == 6
+
+    def pagina_ch(desc):
+        return ('<div class="structured-attributes" job-title="x" job-id="CH-2026-82" job-added-date="2026-10-20" '
+                'job-employment-type="FULL_TIME" job-salary-min="60000" job-salary-max="80000" job-salary-currency="USD" '
+                'job-salary-unit="YEAR" job-apply-url="https://jobs.stardex.com/constant-hire/ops-latam"></div>'
+                f'<div job-description="" class="top-1 w-richtext"><p>{desc}</p></div>')
+    urls = []
+
+    def get_ch(url, **kw):
+        urls.append(url)
+        if url.endswith("/ecommerce-jobs"):
+            return _FakeResp(None, text=lista)
+        return _FakeResp(None, text=pagina_ch(f"Run ops for {url.rsplit('/', 1)[1]}"))
+    with patch("collectors.constanthire.requests.get", side_effect=get_ch), \
+            patch("collectors.constanthire.time.sleep") as dorme:
+        jobs = constanthire.fetch_constanthire(term_filter=["operations", "growth", "commerce"])
+    # USA remota, híbrida em LA e Eastern EU/UK saem sem baixar a página; "Video Editor" cai no título
+    assert [j["titulo"] for j in jobs] == ["Operations Manager", "Growth Marketing Manager"], [j["titulo"] for j in jobs]
+    assert len(urls) == 3 and dorme.call_count == 1
+    c = jobs[0]
+    assert c["link"] == "https://www.constanthire.com/ecommerce-jobs/ops-latam" and c["fonte"] == "constanthire"
+    assert c["cidade"] == "Remoto — LATAM" and c["remoto"] and c["publicado_em"] == "2026-10-20"
+    assert c["salario"] == "USD 60000–80000 YEAR" and "Run ops for ops-latam" in c["descricao"]
+    assert "Cliente: Pet wellness brand." in c["descricao"]
+    urls.clear()
+    with patch("collectors.constanthire.requests.get", side_effect=get_ch):
+        de_novo = constanthire.fetch_constanthire(term_filter=["operations", "growth", "commerce"])
+    assert len(urls) == 1 and [j["descricao"] for j in de_novo] == [j["descricao"] for j in jobs]
+
+    # --- Somewhere ---
+    def ms(d):
+        return str(int(_dt.datetime(d.year, d.month, d.day, 12, tzinfo=_dt.timezone.utc).timestamp() * 1000))
+    novo, velho = ms(_dt.date(2026, 11, 5)), ms(_dt.date(2024, 3, 1))
+
+    def vaga_sw(id_, nome, slug, pais="LATAM,South Africa,Philippines", su=False):
+        return {"id": id_, "name": nome, "slug": slug, "country": pais, "job_type": "Full Time",
+                "job_industry": "E-commerce", "isSourcingUnit": su,
+                "job_description_text": "<p>Own Amazon and Shopify for a DTC brand.</p>"}
+    pg1 = [{"result": {"data": {"json": {"jobs": [
+        vaga_sw(1, "E-comm Growth Brand Manager - 31757739932", novo + "abc"),
+        vaga_sw(2, "SU - Ecommerce Manager", novo + "su1", su=True),
+        vaga_sw(3, "Marketplace Operations Specialist", velho + "old")],
+        "totalCount": 4, "nextCursor": 2, "hasNextPage": True}}}}]
+    pg2 = [{"result": {"data": {"json": {"jobs": [
+        vaga_sw(4, "Ecommerce Operations Lead", novo + "ph", pais="Philippines"),
+        vaga_sw(1, "E-comm Growth Brand Manager - 31757739932", novo + "abc")],
+        "totalCount": 4, "nextCursor": None, "hasNextPage": False}}}}]
+    chamadas = []
+
+    def get_sw(url, params=None, **kw):
+        chamadas.append(json.loads(params["input"]))
+        return _FakeResp(pg1 if len(chamadas) == 1 else pg2)
+    with patch("collectors.somewhere.requests.get", side_effect=get_sw), patch("collectors.somewhere.time.sleep"):
+        jobs = somewhere.fetch_somewhere(term_filter=["growth", "operations", "ecommerce"], hoje=_dt.date(2026, 11, 8))
+    assert [c["0"]["json"]["cursor"] for c in chamadas] == [1, 2]
+    assert chamadas[0]["0"]["json"]["countries"] == ["LATAM"] and chamadas[0]["0"]["json"]["limit"] == 100
+    # banco de talentos (SU), vaga de 2024 e Filipinas saem; a repetida conta uma vez
+    assert [j["titulo"] for j in jobs] == ["E-comm Growth Brand Manager"], [j["titulo"] for j in jobs]
+    w = jobs[0]
+    assert w["link"] == "https://somewhere.com/jobs/apply?slug=" + novo + "abc" and w["publicado_em"] == "2026-11-05"
+    assert w["cidade"] == "Remoto — LATAM" and "Own Amazon and Shopify" in w["descricao"]
+    assert somewhere.criada_em("1793889433656-x") == _dt.date(2026, 11, 5)
+    # títulos e locais da rodada real de 08/11/2026
+    for sujo, limpo in [("Account Manager, Investor Services - [CG] 67559832101", "Account Manager, Investor Services"),
+                        ("64792899631 -Accounts Payable Specialist", "Accounts Payable Specialist"),
+                        ("Tax Operations & Workflow Coordinator - 21992", "Tax Operations & Workflow Coordinator"),
+                        ("C.G - eCommerce Content Coordinator", "eCommerce Content Coordinator"),
+                        ("[CG] Client Success & Operations Coordinator", "Client Success & Operations Coordinator"),
+                        ("Accounts Payable Analyst - ", "Accounts Payable Analyst"),
+                        ("Assistant Controller | AI Automation 64248551231", "Assistant Controller | AI Automation"),
+                        ("Amazon PPC Manager (1) - 20340", "Amazon PPC Manager"),
+                        ("Head of Growth (LATAM)", "Head of Growth (LATAM)")]:
+        assert somewhere.limpar_titulo(sujo) == limpo, (sujo, somewhere.limpar_titulo(sujo))
+    assert somewhere.restringe_fora("<p><strong>Search Location:</strong> South Africa, Eastern Europe, US, UK and Canada</p>")
+    assert somewhere.restringe_fora("<p>Fully remote, Philippines-based</p>")
+    assert not somewhere.restringe_fora("<p>Location: LATAM</p><p>Join our client's team</p>")
+    assert not somewhere.restringe_fora("<p>Our US-based client sells on Amazon.</p>")
+    # "Location: Remote" e afins não restringem; basta um local que aceite LATAM
+    for ok in ["<p>Location: Fully remote</p>", "<p>Work Location : Remote</p>",
+               "<p>Location of Search : Latin America or USA</p><p>Work Location : Remote</p>",
+               "<p>Priority Location: Our most recommended focus country is determined by our talent pool</p>",
+               "<p>Search Location: South Africa, LATAM, Philippines</p>",
+               "<p>Location: Remote with US business hours</p>"]:
+        assert not somewhere.restringe_fora(ok), ok
+    assert somewhere.restringe_fora("<p>Priority Location: UK</p><p>Location: Remote</p>")
+    assert somewhere.restringe_fora("<p>Search Location: South Africa or the Philippines</p>")
+    pg_loc = [{"result": {"data": {"json": {"jobs": [
+        {**vaga_sw(9, "Marketing Operations Specialist - 21878", novo + "mo"),
+         "job_description_text": "<p>Fully remote, Philippines-based</p>"},
+        vaga_sw(10, "Ecommerce Operations Manager - [CG] 67559832101", novo + "eo")],
+        "nextCursor": None, "hasNextPage": False}}}}]
+    with patch("collectors.somewhere.requests.get", return_value=_FakeResp(pg_loc)):
+        jobs_loc = somewhere.fetch_somewhere(term_filter=["operations"], hoje=_dt.date(2026, 11, 8))
+    assert [j["titulo"] for j in jobs_loc] == ["Ecommerce Operations Manager"], [j["titulo"] for j in jobs_loc]
+
+    # --- TrackerRMS (Proppel) ---
+    def post(id_, titulo, local, data="02 November 26"):
+        linha = f"Location: {local}<br>" if local else ""
+        return (f'<div class="fj_post home3"><div class="details"><h3>{titulo}</h3>'
+                f'<p>Posted on <span class="fw600">{data}</span> by <span class="fw600">recruiter</span></p>'
+                f'<p style="margin-top: -25px;">{linha}Our client is a DTC brand&#146;s team.</p>'
+                f'<ul><li><span class="flaticon-pin"></span></li><li>$ - $</li></ul></div>'
+                f'<a href="/Opportunity/LiteJob?db=weareproppel&amp;id={id_}">Apply</a></div>')
+    lista_tr = ("<h3>Latest Jobs</h3>" + post(1468, "Amazon Operations Manager", "LATAM")
+                + post(1467, "Email Marketing Specialist", "US (Authorized workers only)")
+                + post(1466, "Ecommerce Website Manager", "Argentina, Brazil, Colombia, and Mexico")
+                + post(1465, "Growth Assistant", "Argentina, Colombia")
+                + post(1464, "Retail Operations Analyst", "")
+                + post(1468, "Amazon Operations Manager", "LATAM"))
+    assert len(trackerrms.ler_lista(lista_tr)) == 5
+    det = {"1468": "<p>Run Seller Central for a US brand&#146;s catalog.</p>", "1466": "<p>Own Shopify.</p>",
+           "1464": "<p>Work EST hours.</p>"}
+    urls.clear()
+
+    def get_tr(url, params=None, **kw):
+        urls.append(url)
+        if url.endswith("/Opportunity/Lite"):
+            assert params == {"db": "weareproppel"}
+            return _FakeResp(None, text=lista_tr)
+        return _FakeResp(None, text=f'<h2 class="color-white">x</h2><div class="candidate_about_info">'
+                                    f'{det[url.rsplit("=", 1)[1]]}</div>')
+    with patch("collectors.trackerrms.requests.get", side_effect=get_tr), patch("collectors.trackerrms.time.sleep"):
+        jobs = trackerrms.fetch_trackerrms("weareproppel", "Proppel",
+                                           term_filter=["amazon", "marketing", "commerce", "growth", "operations"])
+    # US e "Argentina, Colombia" saem sem baixar a página; sem local e sem LATAM na descrição sai depois
+    assert [j["titulo"] for j in jobs] == ["Amazon Operations Manager", "Ecommerce Website Manager"], [j["titulo"] for j in jobs]
+    assert len(urls) == 4
+    p = jobs[0]
+    assert p["link"] == "https://evoportalus.tracker-rms.com/Opportunity/LiteJob?db=weareproppel&id=1468"
+    assert p["publicado_em"] == "2026-11-02" and p["cidade"] == "Remoto — LATAM" and p["empresa"] == "Proppel"
+    assert "brand’s catalog" in p["descricao"], p["descricao"]
+
+    for j in [w, p, c]:
+        assert perfil_intl.checar_elegibilidade(j)[0] == "sim", (j["titulo"], perfil_intl.checar_elegibilidade(j))
+        assert not screen.fora_do_brasil(j["cidade"], True, j["descricao"])
+
+    # Latamforce: is_remote=false e local vazio, mas o texto diz "100% Remote ... LATAM"
+    from collectors import manatal, workable_contas
+    lf = {"count": 2, "next": None, "results": [
+        {"id": 7, "hash": "LF7", "position_name": "Retail Media Specialist (Amazon/Walmart ads) - Remote Latam",
+         "description": "<p>100% Remote. Based in LATAM.</p>", "is_remote": None, "location_display": ""},
+        {"id": 8, "hash": "LF8", "position_name": "Retail Operations Analyst", "description": "<p>Office in Miami.</p>",
+         "is_remote": False, "location_display": ""}]}
+    with patch("collectors.manatal.requests.get", return_value=_FakeResp(lf)):
+        jobs = manatal.fetch_manatal("latamforce-llc", "Latamforce", term_filter=["retail"])
+    assert [(j["titulo"][:12], j["remoto"]) for j in jobs] == [("Retail Media", True), ("Retail Opera", False)]
+    assert jobs[0]["cidade"] == "Remoto"
+    # Pearl Talent: o nome da agência sai do começo do título
+    wk = {"name": "Pearl", "jobs": [
+        {"title": "Pearl Talent- Finance Operations Associate - I021", "shortcode": "A1", "telecommuting": True,
+         "country": "Brazil", "url": "https://apply.workable.com/pearltalent/j/A1/", "description": "<p>x</p>"}]}
+    with patch("collectors.workable_contas.requests.get", return_value=_FakeResp(wk)):
+        jobs = workable_contas.fetch_workable_conta("pearltalent", "Pearl Talent", term_filter=["operations"])
+    assert jobs[0]["titulo"] == "Finance Operations Associate - I021", jobs[0]["titulo"]
+
+    import yaml as _yaml
+    config = _yaml.safe_load((Path(__file__).parent / "config_intl.yaml").read_text(encoding="utf-8"))
+    src = config["sources"]
+    assert {"hirehawk", "pearltalent"} <= {e["id"] for e in src["workable_contas"]["empresas"]}
+    assert "latamforce-llc" in {e["id"] for e in src["manatal"]["empresas"]}
+    assert src["trackerrms"]["empresas"][0]["id"] == "weareproppel"
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(config)
+    assert {"constanthire", "somewhere", "trackerrms"} <= {f for f, _, _ in tarefas}
+    assert screen._SIMULTANEAS_POR_FONTE["workable_contas"] == 1
+    painel = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'constanthire: "Constant Hire"' in painel and 'trackerrms: "TrackerRMS"' in painel
+    print("OK  test_coletores_agencias_dtc")
+
+
 def test_coletores_pme_e_gtmdaily():
     """Recruitee, Personio, Breezy, Pinpoint e GTM Daily (07/11/2026)."""
     from collectors import breezy, gtmdaily, personio, pinpoint, recruitee
@@ -2090,4 +2286,5 @@ if __name__ == "__main__":
     test_fontes_intl_ajustes()
     test_coletores_agencias_latam()
     test_coletor_activatetalent()
+    test_coletores_agencias_dtc()
     print("\nTodos os testes offline passaram.")

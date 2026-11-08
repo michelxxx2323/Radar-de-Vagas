@@ -17,6 +17,8 @@ Config: sources.manatal.empresas: [{empresa: "Purple Hiring", id: "purple-career
 """
 from __future__ import annotations
 
+import re
+
 import requests
 
 from ._util import aceita_brasil, registrar_board, strip_html, title_matches
@@ -24,6 +26,7 @@ from ._util import aceita_brasil, registrar_board, strip_html, title_matches
 API = "https://api.manatal.com/open/v3/career-page/{id}/jobs/"
 PAGINA = "https://www.careers-page.com/{id}/job/{hash}"
 UA = {"User-Agent": "Mozilla/5.0 (compatible; job-fit-screener/1.0)", "Accept": "application/json"}
+_REMOTO_TEXTO = re.compile(r"\b(100% remote|fully remote|remote)\b", re.I)
 
 
 def fetch_manatal(id_: str, empresa: str = "", term_filter=None, limit: int | None = None,
@@ -50,6 +53,10 @@ def fetch_manatal(id_: str, empresa: str = "", term_filter=None, limit: int | No
         local = v.get("location_display") or ", ".join(
             x for x in (v.get("city"), v.get("state"), v.get("country")) if x)
         descricao = strip_html(v.get("description") or "")
+        # a Latamforce manda is_remote=false e o local vazio em vaga "100% Remote
+        # ... LATAM" (08/11/2026): sem local, o texto decide
+        if not remoto and not local and _REMOTO_TEXTO.search(f"{titulo} {descricao}"):
+            remoto = True
         if remoto and not aceita_brasil(local or "Remote", f"{titulo} {descricao}"):
             continue
         jobs.append({

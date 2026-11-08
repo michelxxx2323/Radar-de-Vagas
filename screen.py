@@ -38,6 +38,7 @@ from collectors.ashby import fetch_ashby
 from collectors.bebee import fetch_bebee
 from collectors.breezy import fetch_breezy
 from collectors.cloudtask import fetch_cloudtask
+from collectors.constanthire import fetch_constanthire
 from collectors.didi import fetch_didi
 from collectors.greenhouse import fetch_greenhouse
 from collectors.gtmdaily import fetch_gtmdaily
@@ -57,8 +58,10 @@ from collectors.remoteok import fetch_remoteok
 from collectors.remotive import fetch_remotive
 from collectors.shopee import fetch_shopee
 from collectors.smartrecruiters import fetch_smartrecruiters
+from collectors.somewhere import fetch_somewhere
 from collectors.teamtailor import fetch_teamtailor
 from collectors.tiktok import fetch_tiktok
+from collectors.trackerrms import fetch_trackerrms
 from collectors.weworkremotely import fetch_weworkremotely
 from collectors.workable import fetch_workable
 from collectors.workable import resetar_bloqueio as resetar_bloqueio_workable
@@ -448,6 +451,23 @@ def collect_jobs(config: dict) -> list[dict]:
     if on("activatetalent"):
         tarefa("activatetalent", "Activate Talent falhou", lambda: fetch_activatetalent(
             term_filter=titulo_ok, limit=company_limit, pausa=sources["activatetalent"].get("pausa", 1.0)))
+    # agências de staffing para marcas DTC/e-commerce (08/11/2026): Constant
+    # Hire (site Webflow), Somewhere (API tRPC do iframe de vagas) e as contas
+    # do TrackerRMS (Proppel)
+    if on("constanthire"):
+        tarefa("constanthire", "Constant Hire falhou", lambda: fetch_constanthire(
+            term_filter=titulo_ok, limit=company_limit, pausa=sources["constanthire"].get("pausa", 1.0)))
+    if on("somewhere"):
+        sw = sources["somewhere"]
+        tarefa("somewhere", "Somewhere falhou", lambda: fetch_somewhere(
+            term_filter=titulo_ok, limit=company_limit, paises=sw.get("paises") or ["LATAM"],
+            max_dias=sw.get("max_dias", 120), incluir_banco_talentos=bool(sw.get("incluir_banco_talentos")),
+            pausa=sw.get("pausa", 1.0)))
+    if on("trackerrms"):
+        for emp in sources["trackerrms"].get("empresas", []):
+            tarefa("trackerrms", f"trackerrms falhou para '{emp.get('empresa') or emp['id']}'",
+                   lambda e=emp: fetch_trackerrms(e["id"], e.get("empresa", ""), term_filter=titulo_ok,
+                                                  limit=company_limit, host=e.get("host", "evoportalus.tracker-rms.com")))
 
     if on("gtmdaily"):
         tarefa("gtmdaily", "GTM Daily falhou", lambda: fetch_gtmdaily(
@@ -500,7 +520,9 @@ def collect_jobs(config: dict) -> list[dict]:
 # já bloqueou acesso automatizado antes — vai mais devagar.
 # Workable: com 4 ao mesmo tempo e a busca no mundo todo (Perfil 2) deu 429
 # em 14 de 26 buscas (07/11/2026)
-_SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1}
+# workable_contas: uma conta por vez desde 08/11/2026 (7 contas; o IP do PC
+# está tomando 429 do Workable)
+_SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1, "workable_contas": 1}
 _SIMULTANEAS_PADRAO = 4
 
 # Situação de cada fonte na última coleta, para a aba "Coletores" do painel

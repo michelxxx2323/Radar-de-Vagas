@@ -200,8 +200,9 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   - Jobicy.
   - GTM Daily: todas as vagas pelo sitemap. Fica a vaga com título do perfil ou que cita Clay, n8n ou Claude.
   - Workable por empresa (`workable_contas`, a API de widget do apply.workable.com, começando pela Hire Overseas), A busca agregada (jobs.workable.com) fica desligada, porque tomava 429 já na 1ª busca. Se for religada, usa 8 termos, 1 busca por vez e 2 s entre chamadas.
-  - Agências de staffing LATAM: HireLATAM (Recruiterflow), Purple Hiring (Manatal) e CloudTask.
+  - Agências de staffing LATAM: HireLATAM (Recruiterflow), Purple Hiring e Latamforce (Manatal) e CloudTask.
   - Activate Talent (`collectors/activatetalent.py`): staffing remoto para marcas de e-commerce dos EUA. A página `/careers` traz as ~330 vagas no payload do Next.js (a tela mostra só ~75); fica a que contrata em Global/LATAM/Brazil, e a descrição vem do JSON-LD da página da vaga, baixada uma por vez com 1 s de pausa e guardada no cache.
+  - Agências de staffing para marcas DTC/e-commerce (08/11/2026): HireHawk e Pearl Talent (Workable por empresa; o Workable roda uma conta por vez), Constant Hire (`collectors/constanthire.py`: a lista inteira está no HTML do site; fica a remota LATAM), Somewhere (`collectors/somewhere.py`: API tRPC do iframe de vagas, 100 por página, só LATAM, sem banco de talentos "SU" e sem vaga com mais de 120 dias pela data do slug) e Proppel (`collectors/trackerrms.py`: portal "Lite" do TrackerRMS; fica a vaga cujo "Location:" aceita Brasil).
   - Boards de empresas estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio, Breezy HR e Pinpoint). O `descobrir_ats.py` testa esses quatro e a conta do Workable. Gupy, InHire, Shopee,
   TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
 - **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,

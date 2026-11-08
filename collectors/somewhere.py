@@ -52,7 +52,14 @@ _PREFIXO_SU = re.compile(r"^\s*SU\s*[-–:]\s*", re.I)
 # a descrição às vezes restringe o país mesmo com LATAM no campo country:
 # "Search Location: South Africa, Eastern Europe, US, UK and Canada",
 # "Fully remote, Philippines-based"
-_LOCAL_DESC = re.compile(r"\b(?:search location|candidate location|hiring location|location)\s*:\s*([^\n]{2,120})", re.I)
+# "Search Location:", "Work Location :", "Location of Search :", "Priority Location:"...
+_LOCAL_DESC = re.compile(r"\b(?:[a-z]+ )?location(?: of search)?\s*:\s*([^\n]{2,120})", re.I)
+# só conta como restrição um local que nomeia país/região ("Location: Remote",
+# "Location: Fully remote" ou "Our most recommended focus country..." não restringem)
+_PAIS_CITADO = re.compile(r"\b(south africa|philippines|india|pakistan|egypt|kenya|nigeria|eastern europe|europe|"
+                          r"united kingdom|united states|canada|mexico|colombia|argentina|peru|chile|costa rica|"
+                          r"cardiff|london)\b", re.I)
+_SIGLA_CITADA = re.compile(r"\b(US|USA|U\.S\.|UK|EU|EMEA|APAC)\b")
 # (sem US/UK/Canada: "our US-based client" é o normal e não restringe o candidato)
 _BASEADO = re.compile(r"\b(philippines|philippine|south africa|india|pakistan|eastern europe|"
                       r"colombia|mexico|argentina)[- ]based\b", re.I)
@@ -107,10 +114,14 @@ def _texto_linhas(html: str) -> str:
 
 
 def restringe_fora(html: str) -> bool:
-    """True se a descrição limita a contratação a países sem Brasil/LATAM."""
+    """True se a descrição limita a contratação a países sem Brasil/LATAM: algum
+    "Location: ..." nomeia país e nenhum aceita Brasil/LATAM, ou a vaga é
+    "Philippines-based" sem citar LATAM em lugar nenhum."""
     texto = _texto_linhas(html)
-    m = _LOCAL_DESC.search(texto)
-    if m and not aceita_brasil(m.group(1)) and not _CITA_BR.search(m.group(1)):
+    valores = [m.group(1) for m in _LOCAL_DESC.finditer(texto)]
+    if any(_CITA_BR.search(v) or aceita_brasil(v) for v in valores):
+        return False
+    if any(_PAIS_CITADO.search(v) or _SIGLA_CITADA.search(v) for v in valores):
         return True
     return bool(_BASEADO.search(texto)) and not _CITA_BR.search(texto)
 

@@ -2053,6 +2053,14 @@ def test_coletores_agencias_dtc():
     assert somewhere.restringe_fora("<p>Fully remote, Philippines-based</p>")
     assert not somewhere.restringe_fora("<p>Location: LATAM</p><p>Join our client's team</p>")
     assert not somewhere.restringe_fora("<p>Our US-based client sells on Amazon.</p>")
+    # "Location: Remote" e afins não restringem; basta um local que aceite LATAM
+    for ok in ["<p>Location: Fully remote</p>", "<p>Work Location : Remote</p>",
+               "<p>Location of Search : Latin America or USA</p><p>Work Location : Remote</p>",
+               "<p>Priority Location: Our most recommended focus country is determined by our talent pool</p>",
+               "<p>Search Location: South Africa, LATAM, Philippines</p>"]:
+        assert not somewhere.restringe_fora(ok), ok
+    assert somewhere.restringe_fora("<p>Priority Location: UK</p><p>Location: Remote</p>")
+    assert somewhere.restringe_fora("<p>Search Location: South Africa or the Philippines</p>")
     pg_loc = [{"result": {"data": {"json": {"jobs": [
         {**vaga_sw(9, "Marketing Operations Specialist - 21878", novo + "mo"),
          "job_description_text": "<p>Fully remote, Philippines-based</p>"},

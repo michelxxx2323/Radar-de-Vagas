@@ -1,3 +1,9 @@
+<div align="center">
+
+**Português (Brasil)** · [English](README_en.md)
+
+</div>
+
 # Job Fit Screener — triagem de vagas com IA
 
 Pipeline em Python que **coleta ~3.500 vagas por rodada em 18 fontes**, pede a

@@ -41,6 +41,8 @@ PELA_URL = [
     (r"\.breezy\.hr", "Breezy HR", "sources.breezy.empresas (id = subdomínio)"),
     (r"\.pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas (id = subdomínio)"),
     (r"apply\.workable\.com", "Workable (conta)", "sources.workable_contas.empresas (id = conta, o trecho depois de apply.workable.com/)"),
+    (r"recruiterflow\.com", "Recruiterflow", "sources.recruiterflow.empresas (id = o trecho depois de recruiterflow.com/)"),
+    (r"careers-page\.com", "Manatal", "sources.manatal.empresas (id = o trecho depois de careers-page.com/)"),
 ]
 # marcas de cada ATS no HTML, pra sites em domínio próprio da empresa
 PELO_HTML = [
@@ -57,6 +59,8 @@ PELO_HTML = [
     (r"breezy\.hr", "Breezy HR", "sources.breezy.empresas"),
     (r"pinpointhq\.com", "Pinpoint", "sources.pinpoint.empresas"),
     (r"apply\.workable\.com", "Workable (conta)", "sources.workable_contas.empresas"),
+    (r"recruiterflow\.com", "Recruiterflow", "sources.recruiterflow.empresas"),
+    (r"careers-page\.com|manatal", "Manatal", "sources.manatal.empresas"),
     (r"eightfold", "Eightfold (não suportado)", "-"),
     (r"successfactors|sapsf", "SAP SuccessFactors (não suportado)", "-"),
     (r"recrut\.ai", "Recrut.ai (não suportado)", "-"),
@@ -107,6 +111,10 @@ def _probe(nome: str) -> tuple[str, list[str]]:
         # responde 200 até para conta inexistente: só conta se tiver vaga
         ("workable_contas", f"https://apply.workable.com/api/v1/widget/accounts/{nome}",
          lambda r: len(r.json().get("jobs") or []) or None),
+        ("manatal", f"https://api.manatal.com/open/v3/career-page/{nome}/jobs/",
+         lambda r: r.json().get("count")),
+        ("recruiterflow", f"https://recruiterflow.com/{nome}/jobs",
+         lambda r: r.text.count('"job_id"') if "window.jobsList" in r.text else None),
     ]
     for ats, url, contar in testes:
         try:

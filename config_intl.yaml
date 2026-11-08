@@ -244,6 +244,22 @@ sources:
     # - 404, não existe com esse id: outsourcing-advantage, hireinsouth,
     #   virtual-latinos, tecla, bluecoding, oowlish, levelup-latam.
 
+  # Agências de staffing LATAM (08/11/2026, lista do Michel). As outras da
+  # lista ficaram de fora: Simpalm e Virtustant (quase só VA/SDR), Talenté (sem
+  # vagas publicadas), Delv Global (só agrega vagas de outras empresas) e Corsa
+  # (site não encontrado).
+  recruiterflow:
+    enabled: true
+    empresas:
+      - {empresa: "HireLATAM", id: "hirelatam"}          # 86 vagas, 21 passam no título
+  manatal:
+    enabled: true
+    empresas:
+      - {empresa: "Purple Hiring", id: "purple-careers"}  # 8 vagas, todas LATAM Only
+  cloudtask:
+    enabled: true
+    max_dias: 120            # o board tem vagas de 2024-2025 ainda no ar
+
   # Busca agregada do Workable (jobs.workable.com): não é feita para varredura.
   # Desligada em 07/11/2026: mesmo com 8 termos, 1 busca por vez e 2 s entre
   # chamadas, a 1ª busca já tomou 429 e a rodada gastou 120 s esperando sem

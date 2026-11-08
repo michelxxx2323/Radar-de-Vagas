@@ -36,6 +36,7 @@ from collectors.amazon import fetch_amazon
 from collectors.ashby import fetch_ashby
 from collectors.bebee import fetch_bebee
 from collectors.breezy import fetch_breezy
+from collectors.cloudtask import fetch_cloudtask
 from collectors.didi import fetch_didi
 from collectors.greenhouse import fetch_greenhouse
 from collectors.gtmdaily import fetch_gtmdaily
@@ -44,10 +45,12 @@ from collectors.jobicy import fetch_jobicy
 from collectors.gupy import fetch_gupy, fetch_gupy_empresa
 from collectors.inhire import fetch_inhire
 from collectors.lever import fetch_lever
+from collectors.manatal import fetch_manatal
 from collectors.mercadolivre import fetch_mercadolivre
 from collectors.personio import fetch_personio
 from collectors.pinpoint import fetch_pinpoint
 from collectors.recruitee import fetch_recruitee
+from collectors.recruiterflow import fetch_recruiterflow
 from collectors.remoteio import fetch_remoteio
 from collectors.remoteok import fetch_remoteok
 from collectors.remotive import fetch_remotive
@@ -386,7 +389,8 @@ def collect_jobs(config: dict) -> list[dict]:
     # empresa por item, {empresa, id} com id = subdomínio no ATS
     for fonte, fn in (("recruitee", fetch_recruitee), ("personio", fetch_personio),
                       ("breezy", fetch_breezy), ("pinpoint", fetch_pinpoint),
-                      ("workable_contas", fetch_workable_conta)):
+                      ("workable_contas", fetch_workable_conta), ("recruiterflow", fetch_recruiterflow),
+                      ("manatal", fetch_manatal)):
         if on(fonte):
             for emp in sources[fonte].get("empresas", []):
                 tarefa(fonte, f"{fonte} falhou para '{emp.get('empresa') or emp['id']}'",
@@ -434,6 +438,11 @@ def collect_jobs(config: dict) -> list[dict]:
                    lambda g=geo: fetch_jobicy(geo=g, term_filter=titulo_ok, limit=company_limit))
     # GTM Daily: diretório curado de vagas de GTM engineering/RevOps (lê as
     # páginas da listagem e baixa a página só das que passam no título e local)
+    # CloudTask: marketplace LATAM, uma busca só (08/11/2026)
+    if on("cloudtask"):
+        tarefa("cloudtask", "CloudTask falhou", lambda: fetch_cloudtask(
+            term_filter=titulo_ok, limit=company_limit, max_dias=sources["cloudtask"].get("max_dias", 120)))
+
     if on("gtmdaily"):
         tarefa("gtmdaily", "GTM Daily falhou", lambda: fetch_gtmdaily(
             term_filter=titulo_ok, max_pages=sources["gtmdaily"].get("max_pages", 15), limit=company_limit,

@@ -201,6 +201,7 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   - GTM Daily: todas as vagas pelo sitemap. Fica a vaga com título do perfil ou que cita Clay, n8n ou Claude.
   - Workable por empresa (`workable_contas`, a API de widget do apply.workable.com, começando pela Hire Overseas), A busca agregada (jobs.workable.com) fica desligada, porque tomava 429 já na 1ª busca. Se for religada, usa 8 termos, 1 busca por vez e 2 s entre chamadas.
   - Agências de staffing LATAM: HireLATAM (Recruiterflow), Purple Hiring (Manatal) e CloudTask.
+  - Activate Talent (`collectors/activatetalent.py`): staffing remoto para marcas de e-commerce dos EUA. A página `/careers` traz as ~330 vagas no payload do Next.js (a tela mostra só ~75); fica a que contrata em Global/LATAM/Brazil, e a descrição vem do JSON-LD da página da vaga, baixada uma por vez com 1 s de pausa e guardada no cache.
   - Boards de empresas estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio, Breezy HR e Pinpoint). O `descobrir_ats.py` testa esses quatro e a conta do Workable. Gupy, InHire, Shopee,
   TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
 - **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,

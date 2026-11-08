@@ -259,6 +259,12 @@ sources:
   cloudtask:
     enabled: true
     max_dias: 120            # o board tem vagas de 2024-2025 ainda no ar
+  # Activate Talent (08/11/2026): staffing remoto para marcas de e-commerce dos
+  # EUA (Amazon, TikTok Shop, Shopify, wholesale). Plataforma própria. Fica a
+  # vaga que contrata em Global/LATAM/Brazil; Philippines, Europe etc. saem.
+  activatetalent:
+    enabled: true
+    pausa: 1.0               # segundos entre as páginas de vaga (só na 1ª vez; depois vem do cache)
 
   # Busca agregada do Workable (jobs.workable.com): não é feita para varredura.
   # Desligada em 07/11/2026: mesmo com 8 termos, 1 busca por vez e 2 s entre

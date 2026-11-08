@@ -1785,19 +1785,24 @@ def test_coletores_agencias_latam():
          "job_id": 1809, "job_name": "E-commerce Operations Assistant", "last_opened": "2026-11-06T15:44:31+0000",
          "remote_type": "Remote"},
         {"apply_link": "hirelatam/jobs/1810", "details": "Brazil", "job_id": 1810, "job_name": "Remote Accountant",
-         "remote_type": "Remote"}]]],
+         "remote_type": "Remote"},
+        {"apply_link": "hirelatam/jobs/1811", "details": "Latin America", "job_id": 1811,
+         "job_name": "Remote Head of Marketing & Growth", "remote_type": None}]]],
         "location": [["Brazil", [{"job_id": 1805, "job_name": "Amazon Marketplace Manager"}]]]}
     html = ("<script>$('#x').hide();</script><script type=\"text/javascript\">\n  window.jobsList = "
             + json.dumps(lista) + ";\n  window.viewOpportunitiesBtnColor = '#fff';</script>")
     ld = {"@type": "JobPosting", "description": "<p>HireLatam is a premier recruitment agency.</p><p>Job Title: Amazon "
           "Marketplace Manager</p><p>Run Seller Central.</p><p>Application Disclaimer: blah</p>"}
     pagina = f'<script type="application/ld+json">{json.dumps(ld)}</script><div id="react-root"></div>'
-    with patch("collectors.recruiterflow.requests.get", side_effect=[_FakeResp(None, text=html), _FakeResp(None, text=pagina)]) as m, \
+    with patch("collectors.recruiterflow.requests.get", side_effect=[_FakeResp(None, text=html), _FakeResp(None, text=pagina),
+                                                                       _FakeResp(None, text=pagina)]) as m, \
             patch("collectors.recruiterflow._cache.descricao", side_effect=lambda chave, buscar: buscar()):
-        jobs = recruiterflow.fetch_recruiterflow("hirelatam", "HireLATAM", term_filter=["marketplace", "operations"])
+        jobs = recruiterflow.fetch_recruiterflow("hirelatam", "HireLATAM",
+                                                 term_filter=["marketplace", "operations", "marketing"])
     assert m.call_args_list[0].args[0] == "https://recruiterflow.com/hirelatam/jobs"
     # Honduras/México/Colômbia sem Brasil fica de fora; "Accountant" cai no título
-    assert [j["titulo"] for j in jobs] == ["Amazon Marketplace Manager"]
+    assert [j["titulo"] for j in jobs] == ["Amazon Marketplace Manager", "Remote Head of Marketing & Growth"]
+    assert jobs[1]["remoto"] and jobs[1]["cidade"] == "Remoto — Latin America"  # remote_type null
     j = jobs[0]
     assert j["link"] == "https://recruiterflow.com/hirelatam/jobs/1805" and j["publicado_em"] == "2026-11-05"
     assert j["cidade"] == "Remoto — Mexico, Colombia, Brazil, Latin America" and j["remoto"]

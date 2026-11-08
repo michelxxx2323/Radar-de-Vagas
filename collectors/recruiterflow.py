@@ -91,7 +91,8 @@ def fetch_recruiterflow(id_: str, empresa: str = "", term_filter=None, limit: in
         titulo = (v.get("job_name") or "").strip()
         if not titulo or (term_filter is not None and not title_matches(titulo, term_filter)):
             continue
-        remoto = (v.get("remote_type") or "").lower() == "remote"
+        # remote_type às vezes vem null em vaga remota ("Remote Head of Marketing")
+        remoto = (v.get("remote_type") or "").lower() == "remote" or titulo.lower().startswith("remote ")
         local = _paises(v.get("details"))
         # remota: os países decidem; presencial: o filtro de fora do Brasil do screen.py
         if remoto and not aceita_brasil(local or "Remote"):

@@ -51,6 +51,13 @@ search_terms:
   - "ai automation"
   - "outbound operations"
   - "clay"
+  # 10/11/2026: nomes do cargo no artigo da Clay sobre contratar GTM engineer
+  # ("GTME", "Technical RevOps", "GTM Engineer, Systems and Infrastructure")
+  - "gtme"
+  - "technical revops"
+  - "gtm systems"
+  - "revenue systems"
+  - "revenue engineer"
 
 # Exemplo (o que vale é o preferencias_intl.txt, se existir).
 preferencias: |
@@ -85,6 +92,17 @@ preferencias: |
   aprendíveis e não são gap crítico. SQL avançado, Python avançado, Salesforce
   admin e espanhol são gap crítico.
 
+  GTM ENGINEER (artigo da Clay, 10/11/2026): é cargo-alvo. A Clay resume como
+  "RevOps + dados + construção": quem junta operação de receita (RevOps, Sales
+  Ops, GTM) com construção de fluxos e automações (Clay, n8n, agentes de IA,
+  APIs e webhooks, CRM). Contam a favor: já ter sido fundador, vir de
+  operações/estratégia, ter construído sistemas de GTM e medir pipeline e
+  conversão. O tipo "Functional" (fluxos junto de vendas/marketing) é o meu
+  alvo. O tipo "Systems & Infrastructure" pede desenvolvimento em Salesforce
+  (Apex) e cerca de 10 anos em sistemas de receita: é lacuna. Programação em
+  nível de uso (SQL, Python ou JavaScript com ajuda de IA, Claude Code) não é
+  gap; só é gap quando engenharia de software é o núcleo da função.
+
 title_keywords:
   - "operations"
   - "ecommerce"
@@ -103,6 +121,10 @@ title_keywords:
   - "revops"
   - "sales ops"
   - "business ops"
+  # 10/11/2026 (GTM engineer): "GTME" e "Technical RevOps" já passam por
+  # "gtm" e "revops"; estes dois não passavam por nenhuma
+  - "sales systems"
+  - "marketing systems"
   - "automation"
   - "clay"
   - "n8n"

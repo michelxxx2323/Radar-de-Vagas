@@ -217,6 +217,14 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
 - A tarefa agendada (`rodar_diario.bat`) roda o Perfil 1 e, logo depois, o Perfil 2; o `sincronizar.py` sobe os dois relatórios juntos.
 - **Painel:** o `sincronizar.py` sobe também o último `vagas_intl_*.csv`; na aba
   "Vagas de hoje" há a coluna Perfil e o filtro Brasil / Internacional.
+- **GTM engineer (10/11/2026, artigo da Clay "How to hire a go-to-market
+  engineer"):** a busca ganhou os nomes do cargo (GTME, Technical RevOps, GTM
+  Systems, Revenue Systems, Revenue Engineer) e o filtro de título aceita "Sales
+  Systems" e "Marketing Systems". O Jev tem a trilha própria `gtm_engineering`
+  ("RevOps + dados + construção"), separada de `gtm_revops`. A vaga que pede
+  desenvolvimento em Salesforce (Apex, LWC, Salesforce Developer), típica do
+  GTME de Systems & Infrastructure, fica no máximo em `avaliar`. No painel, a
+  aba "Vagas de hoje" tem o filtro por trilha e o selo "GTM engineer".
 
 ## Como foi construído
 

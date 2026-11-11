@@ -105,6 +105,7 @@ python screen.py --config config_intl.yaml --mock   # test with no network/key
 - **Rules:** internships, people management, mandatory Spanish, work authorization in another country or jobs that don't accept Brazil become `nao_aplicar` (skip). Native English, advanced SQL/Python or uncertain eligibility cap the job at `avaliar` (review). Dollar-paid jobs have no seniority issue unless the job itself requires it. On-site/hybrid jobs in Brazil only stay if the company is foreign or pays in dollars.
 - The scheduled task (`rodar_diario.bat`) runs Profile 1 and, right after, Profile 2; `sincronizar.py` uploads both reports together.
 - **Dashboard:** `sincronizar.py` also uploads the latest `vagas_intl_*.csv`; the "Today's jobs" tab has a Profile column and a Brazil / International filter.
+- **GTM engineer (Nov 10, 2026, Clay's "How to hire a go-to-market engineer"):** the search gained the role's other names (GTME, Technical RevOps, GTM Systems, Revenue Systems, Revenue Engineer) and the title filter accepts "Sales Systems" and "Marketing Systems". Jev has its own `gtm_engineering` track ("RevOps + data + building"), separate from `gtm_revops`. A job that asks for Salesforce development (Apex, LWC, Salesforce Developer), typical of the Systems & Infrastructure GTME, is capped at `avaliar` (review). In the dashboard, the "Today's jobs" tab has a track filter and a "GTM engineer" badge.
 
 ## How it was built
 

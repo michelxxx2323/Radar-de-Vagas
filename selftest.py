@@ -2248,6 +2248,95 @@ def test_coletores_pme_e_gtmdaily():
     print("OK  test_coletores_pme_e_gtmdaily")
 
 
+def test_perfil2_gtm_engineer():
+    """GTM engineer no Perfil 2 (10/11/2026, artigo da Clay "How to hire a
+    go-to-market engineer"): nomes do cargo na busca e no filtro de título,
+    trilha própria, regra de Salesforce development e filtro no painel."""
+    import perfil_intl as pi
+    import yaml as _yaml
+    from collectors._util import title_filter
+    raiz = Path(__file__).parent
+    cfg = _yaml.safe_load((raiz / "config_intl.yaml").read_text(encoding="utf-8"))
+
+    # busca: os nomes do artigo entram sem tirar os que já existiam
+    termos = cfg["search_terms"]
+    for t in ("gtme", "technical revops", "gtm systems", "revenue systems", "revenue engineer",
+              "gtm engineer", "go-to-market engineer", "revenue operations", "clay"):
+        assert t in termos, t
+    assert "GTM ENGINEER" in cfg["preferencias"] and "Systems & Infrastructure" in cfg["preferencias"]
+
+    # filtro de título: as variações do cargo passam; engenharia de software continua fora
+    ok = title_filter(cfg["title_keywords"], cfg["title_exclude"])
+    for titulo in ("GTM Engineer, Systems and Infrastructure", "GTM Engineer, Marketing", "Senior GTME",
+                   "Technical RevOps Specialist", "Revenue Systems Analyst", "Sales Systems Specialist",
+                   "Marketing Systems Manager", "Go-to-Market Engineer"):
+        assert ok(titulo), titulo
+    for titulo in ("Senior Software Engineer", "Salesforce Developer", "Data Engineer"):
+        assert not ok(titulo), titulo
+
+    # trilha própria, sem apagar a gtm_revops
+    assert "gtm_engineering" in pi.TRILHAS_INTL and "gtm_revops" in pi.TRILHAS_INTL
+    assert "gtm_engineering" in pi.build_questions_intl()["trilha"]["criteria"]
+
+    # Systems & Infrastructure: desenvolvimento em Salesforce segura em "avaliar"
+    def vaga(descricao):
+        return pi.ajustar_recomendacao_intl({
+            "titulo": "GTM Engineer", "empresa": "X", "cidade": "Remote - LATAM", "estado": "", "remoto": True,
+            "descricao": descricao, "recomendacao": "aplicar_agora", "gap_critico": "não",
+            "ingles_exigido": "avancado", "elegibilidade_jev": "sim"})
+    for desc in ("Hands-on Salesforce development: Apex triggers and flows.",
+                 "Build Lightning Web Components for our sales team.",
+                 "5+ years as a Salesforce Developer.", "Write Apex code and integrations."):
+        r = vaga(desc)
+        assert r["recomendacao"] == "avaliar" and "Salesforce" in r["ajuste"], (desc, r["ajuste"])
+    for desc in ("Apex Systems is hiring a GTM engineer. Build Clay tables and n8n flows.",
+                 "Our stack: Salesforce, HubSpot, Clay, Gong. APIs and webhooks."):
+        assert vaga(desc)["recomendacao"] == "aplicar_agora", desc
+
+    # painel: filtro por trilha e destaque da GTM engineering
+    html = (raiz / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'id="trilha"' in html and "seletorTrilha()" in html and 'gtm_engineering: "GTM engineering"' in html
+    assert 'class="chip gtme"' in html and 'el.id === "trilha"' in html
+    for t in list(pi.TRILHAS_INTL) + ["revenue_operations", "gtm_bd", "business_analyst_estrategia", "produto_ops"]:
+        assert f"{t}:" in html.split("const TRILHA = {", 1)[1].split("};", 1)[0], t
+    import sincronizar as sinc
+    assert "trilha" in sinc.CAMPOS_LISTA  # a trilha chega ao painel
+    print("OK  test_perfil2_gtm_engineer")
+
+
+def test_painel_selo_recomendacao():
+    """11/11/2026: selo discreto com o veredito do Jev ("Aplicar agora" ou
+    "Avaliar") em cada vaga de hoje e em cada candidatura."""
+    raiz = Path(__file__).parent
+    html = (raiz / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'const REC = { aplicar_agora: "Aplicar agora", avaliar: "Avaliar" }' in html
+    assert ".chip.rec {" in html and ".chip.rec.avaliar::before" in html
+    assert "function chipRec(r)" in html and "function recCandidatura(c)" in html
+    assert "${chipRec(v.recomendacao)}" in html.split("function abaVagas()", 1)[1].split("function seletorTrilha()", 1)[0]
+    assert "${chipRec(recCandidatura(c))}" in html.split("function linhaCandidatura(c)", 1)[1].split("function abaVagas()", 1)[0]
+    # a recomendação chega ao painel e fica gravada na candidatura do "Já enviei"
+    import sincronizar as sinc
+    assert "recomendacao" in sinc.CAMPOS_LISTA
+    import importlib.util
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {"SQLITE_PATH": str(Path(tmp) / "nuvem.db"), "PAINEL_SENHA": "s3nha", "PAINEL_TOKEN": "tok",
+               "SEGREDO": "x" * 32}
+        with patch.dict(os.environ, env):
+            os.environ.pop("DATABASE_URL", None)
+            os.environ.pop("POSTGRES_URL", None)
+            spec = importlib.util.spec_from_file_location("painel_selo", raiz / "web" / "api" / "index.py")
+            web = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(web)
+            nav = web.criar_app().test_client()
+            assert nav.post("/api/login", json={"senha": "s3nha"}).status_code == 200
+            r = nav.post("/api/candidatura", json={"link": "https://x/9", "titulo": "Analista", "empresa": "Acme",
+                                                   "recomendacao": "avaliar"})
+            assert r.status_code == 200, r.get_json()
+            c = nav.get("/api/painel").get_json()["candidaturas"]
+            assert [x["recomendacao"] for x in c] == ["avaliar"]
+    print("OK  test_painel_selo_recomendacao")
+
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -2287,4 +2376,6 @@ if __name__ == "__main__":
     test_coletores_agencias_latam()
     test_coletor_activatetalent()
     test_coletores_agencias_dtc()
+    test_perfil2_gtm_engineer()
+    test_painel_selo_recomendacao()
     print("\nTodos os testes offline passaram.")

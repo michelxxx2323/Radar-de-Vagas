@@ -16,6 +16,14 @@ Regras do Michel que valem aqui (07/11/2026):
   Por isso "entry level" no título NÃO descarta; só estágio/intern descarta;
 - vaga presencial/híbrida no Brasil (ex.: SP) fica se for de empresa
   estrangeira/paga em dólar; senão sai (ver screen.collect_jobs).
+
+GTM engineer (10/11/2026, artigo da Clay "How to hire a go-to-market engineer"):
+- trilha própria `gtm_engineering`, separada de `gtm_revops`. A Clay define o
+  cargo como "RevOps + data + building" e divide em dois tipos: o Functional
+  GTME (fluxos com vendas/marketing, Clay, agentes, APIs/webhooks) e o Systems
+  & Infrastructure GTME (dono do CRM, com desenvolvimento em Salesforce);
+- o Systems & Infrastructure pede desenvolvimento em Salesforce (Apex, LWC),
+  que é gap crítico do Michel: a vaga que pede isso fica no máximo "avaliar".
 """
 from __future__ import annotations
 
@@ -27,7 +35,11 @@ PERFIL = "intl"
 
 TRILHAS_INTL = {
     "ecommerce_marketplace": "E-commerce, marketplace e DTC operations: sellers, catálogo, Amazon/Shopify, category",
-    "gtm_revops": "GTM/Revenue/Sales Operations, GTM engineering, outbound operations, CRM e funil",
+    "gtm_revops": "GTM/Revenue/Sales Operations, outbound operations, CRM e funil, forecast e relatórios",
+    # 10/11/2026: separada da gtm_revops (artigo da Clay sobre GTM engineer)
+    "gtm_engineering": "GTM engineering (GTM Engineer, GTME, Technical RevOps, GTM/Revenue Systems): construir "
+                       "fluxos e sistemas de receita com Clay, n8n, agentes de IA, APIs/webhooks e CRM — "
+                       "'RevOps + dados + construção'",
     "ai_automation": "Automação com IA aplicada a vendas/operações (Clay, n8n, Make, agentes, workflows)",
     "growth_ops": "Growth operations, marketing operations, lifecycle, performance",
     "product_ops": "Product Operations, Business Operations, Strategy & Operations",
@@ -271,6 +283,15 @@ _SQL_PY_RE = re.compile(
     r"\b(advanced|expert|expert[- ]level|deep|strong) (proficiency (in|with) |knowledge of |skills in |)"
     r"(sql|python)\b|\b(sql|python) (expert|expertise|mastery)\b|\badvanced (sql|python) skills\b"
 )
+# Systems & Infrastructure GTME (artigo da Clay): desenvolvimento em Salesforce
+# como requisito. "Apex" sozinho não conta (nome de empresa: "Apex Systems").
+_SALESFORCE_DEV_RE = re.compile(
+    r"\bapex (code|classes|class|triggers?|development|developer|programming)\b|"
+    r"\blightning web components?\b|\blwc\b|"
+    r"\bsalesforce (developer|development|engineer|engineering|architect)\b|"
+    r"\bhands[- ]on salesforce (development|engineering|admin|administration)\b|"
+    r"\bsalesforce (certified )?(platform )?developer (i|ii|1|2|certification)\b"
+)
 _FRASE_SPLIT_RE = re.compile(r"[.;\n•·|]|\s-\s")
 _ESPANHOL_OBRIG_RE = re.compile(r"\b(fluent|fluency|native|required|must|mandatory|bilingual|proficien|advanced|"
                                 r"professional working|full professional|c1|c2|essential)")
@@ -326,6 +347,8 @@ def ajustar_recomendacao_intl(r: dict) -> dict:
         _no_maximo(r, "avaliar", "pede inglês nativo/quase nativo")
     if _SQL_PY_RE.search(desc):
         _no_maximo(r, "avaliar", "SQL/Python avançado como requisito")
+    if _SALESFORCE_DEV_RE.search(desc):
+        _no_maximo(r, "avaliar", "pede desenvolvimento em Salesforce (GTME de Systems & Infrastructure)")
     if eleg == "incerta":
         _no_maximo(r, "avaliar", "elegibilidade incerta: a vaga não diz se aceita Brasil")
     if r.get("gap_critico") == "sim":

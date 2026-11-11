@@ -99,6 +99,12 @@
   .chip.nova { background: var(--nova-bg); color: var(--nova); font-weight: 600; margin-left: 6px; }
   .chip.atraso { background: var(--surface-2); color: var(--atraso); font-weight: 600; margin-left: 6px; }
   .chip.alerta { background: var(--recusada-bg); color: var(--alerta); font-weight: 600; margin-left: 6px; cursor: help; }
+  /* trilha GTM engineering do Perfil 2 (artigo da Clay, 10/11/2026) */
+  .chip.gtme { border: 1px solid var(--p2); color: var(--p2); font-weight: 600; margin-left: 6px; padding: 1px 7px; }
+  /* veredito do Jev (11/11/2026): selo discreto "Aplicar agora" (bolinha cheia) ou "Avaliar" (bolinha vazada) */
+  .chip.rec { margin-left: 6px; font-size: 11px; padding: 0 6px; color: var(--muted); border: 1px solid var(--border); }
+  .chip.rec::before { content: ""; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; background: var(--oferta); }
+  .chip.rec.avaliar::before { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
   .rascunho td { background: var(--surface-2); }
   /* Perfil 1 (Brasil) e Perfil 2 (internacional, em dólar): cor própria em chip, linha e cartão */
   .chip.p-br { background: var(--p1-bg); color: var(--p1); font-weight: 600; }
@@ -178,7 +184,8 @@ const hash = location.hash.slice(1);
 let aba = ABAS.some(a => a.id === hash) ? hash : (lerLocal("aba") || "candidaturas");
 if (!ABAS.some(a => a.id === aba)) aba = "candidaturas";
 let filtroFunil = "ativas";
-let filtroVagas = { busca: "", rec: "aplicar_agora", perfil: lerLocal("perfil") || "todos", esconder: true, novas: false, descartadas: false, limite: 150 };
+let filtroVagas = { busca: "", rec: "aplicar_agora", perfil: lerLocal("perfil") || "todos", trilha: lerLocal("trilha") || "todas",
+  esconder: true, novas: false, descartadas: false, limite: 150 };
 // Perfil 2 (07/11/2026): vagas internacionais em dólar, do relatório vagas_intl_*
 const PERFIS = { br: "Brasil", intl: "Internacional" };
 // rótulo curto do chip e o que cada perfil busca (cartões no topo da aba Vagas de hoje)
@@ -188,6 +195,12 @@ const ELEGIB = { sim: "aceita Brasil", incerta: "elegibilidade incerta", nao: "n
 const TIPO_EMPRESA = { agencia: "agência", marca_dtc: "marca DTC", empresa_pequena: "empresa pequena",
   empresa_media: "empresa média", marketplace: "marketplace", saas: "SaaS", grande_corporacao: "grande corporação" };
 const INGLES = { basico: "inglês básico", intermediario: "inglês intermediário", avancado: "inglês avançado", nativo: "inglês nativo" };
+// trilha que o Jev deu à vaga (TRILHAS do screen.py e TRILHAS_INTL do perfil_intl.py).
+// gtm_engineering (10/11/2026) separa o GTM engineer do GTM/RevOps no Perfil 2.
+const TRILHA = { revenue_operations: "Revenue/Sales Ops", gtm_bd: "GTM e parcerias", business_analyst_estrategia: "Business analyst e estratégia",
+  ecommerce_marketplace: "E-commerce e marketplace", produto_ops: "Product ops", gtm_revops: "GTM e RevOps",
+  gtm_engineering: "GTM engineering", ai_automation: "Automação com IA", growth_ops: "Growth ops",
+  product_ops: "Product e business ops", outro: "Outra trilha" };
 // rascunho do formulário "+ Adicionar" (null = fechado); fica fora do HTML para
 // a atualização automática da página não apagar o que foi digitado
 let formCand = null;
@@ -200,6 +213,8 @@ let rascunho = null;
 const FOLLOWUP_DIAS = 10, PARADA_DIAS = 60, MAX_FOLLOWUPS = 2;
 // vaga publicada há mais disso ganha aviso (o mesmo limite do screen.py)
 const DIAS_VAGA_ANTIGA = 30;
+// veredito do Jev em cada vaga (recomendacao do screen.py): vira o selo discreto chipRec
+const REC = { aplicar_agora: "Aplicar agora", avaliar: "Avaliar" };
 
 function lerLocal(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function gravarLocal(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -207,6 +222,11 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function nota(n) { const v = parseFloat(n); return isNaN(v) ? "–" : v.toFixed(1); }
+function chipRec(r) {
+  return REC[r] ? `<span class="chip rec ${r === "avaliar" ? "avaliar" : "agora"}" title="Veredito do Jev: ${REC[r].toLowerCase()}">${REC[r]}</span>` : "";
+}
+// a candidatura guarda a recomendação desde o "Já enviei"; as antigas buscam na vaga de hoje
+function recCandidatura(c) { return c.recomendacao || (dados.vagas.find(v => v.link === c.link) || {}).recomendacao; }
 function chipStatus(s) { return s ? `<span class="chip s-${esc(s)}">${esc(STATUS[s] || s)}</span>` : ""; }
 function hojeISO() { return new Date().toLocaleDateString("sv-SE"); }  // AAAA-MM-DD no fuso local
 // "2026-10-28" é uma data (sem fuso); "2026-10-28T03:15:00+00:00" é um instante
@@ -550,7 +570,7 @@ function linhaCandidatura(c) {
         <button class="discreto" data-acao="fechar-rascunho">Fechar</button></div></td></tr>` : "";
   return `<tr>
       <td class="vaga">${/^https?:/.test(c.link) ? `<a href="${esc(c.link)}" target="_blank" rel="noopener"><strong>${esc(c.titulo)}</strong></a>`
-          : `<strong>${esc(c.titulo)}</strong>`}
+          : `<strong>${esc(c.titulo)}</strong>`}${chipRec(recCandidatura(c))}
         <div class="sub">${esc(c.empresa)}${c.fonte === "manual" ? " · adicionada à mão" : ""}${chipPerfil(c.perfil, true)}</div></td>
       <td><select data-acao="status" data-id="${c.id}">${POS.map(s =>
         `<option value="${s}" ${s === c.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}</select></td>
@@ -568,6 +588,7 @@ function abaVagas() {
   const lista = dados.vagas.filter(v =>
     (f.rec === "todas" || v.recomendacao === f.rec) &&
     (f.perfil === "todos" || perfilVaga(v) === f.perfil) &&
+    (f.trilha === "todas" || v.trilha === f.trilha) &&
     (!f.esconder || (!v.status && !v.descartada)) &&
     (!f.novas || ehNova(v)) &&
     (!busca || `${v.titulo} ${v.empresa}`.toLowerCase().includes(busca)));
@@ -579,6 +600,7 @@ function abaVagas() {
       <option value="avaliar" ${f.rec === "avaliar" ? "selected" : ""}>Avaliar</option>
       <option value="todas" ${f.rec === "todas" ? "selected" : ""}>As duas</option>
     </select>
+    ${seletorTrilha()}
     <label class="sub"><input type="checkbox" id="esconder" ${f.esconder ? "checked" : ""}> Esconder enviadas e descartadas</label>
     <label class="sub"><input type="checkbox" id="novas" ${f.novas ? "checked" : ""}> Só as novas</label>
     <label class="sub"><input type="checkbox" id="descartadas" ${f.descartadas ? "checked" : ""}> Ver descartadas (${dados.descartes.length})</label>
@@ -591,10 +613,11 @@ function abaVagas() {
   if (!lista.length) return topo + `<div class="vazio">Nenhuma vaga com esse filtro.</div>`;
   const linhas = lista.slice(0, f.limite).map(v => `<tr class="perfil-${esc(perfilVaga(v))}">
       <td class="num"><span class="nota">${nota(v.nota_fit)}</span></td>
-      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}${
+      <td class="vaga"><a href="${esc(v.link)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>${chipRec(v.recomendacao)}${ehNova(v) ? `<span class="chip nova">Nova</span>` : ""}${
         Number(v.idade_dias) > DIAS_VAGA_ANTIGA ? `<span class="chip atraso" title="Publicada em ${esc(v.publicado_em)}">no ar há ${esc(v.idade_dias)} d</span>` : ""}${
-        /dirigido a IA/.test(v.alerta || "") ? `<span class="chip alerta" title="${esc(v.alerta)}">⚠ texto suspeito</span>` : ""}
-        <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}${
+        /dirigido a IA/.test(v.alerta || "") ? `<span class="chip alerta" title="${esc(v.alerta)}">⚠ texto suspeito</span>` : ""}${
+        v.trilha === "gtm_engineering" ? `<span class="chip gtme" title="Trilha GTM engineering: RevOps + dados + construção (Clay, n8n, agentes, APIs)">GTM engineer</span>` : ""}
+        <div class="sub">${esc(v.empresa)}${v.salario ? " · " + esc(v.salario) : ""}${v.trilha && v.trilha !== "gtm_engineering" ? " · " + esc(TRILHA[v.trilha] || v.trilha) : ""}${
           perfilVaga(v) === "intl" ? [ELEGIB[v.elegibilidade], TIPO_EMPRESA[v.tipo_empresa] || v.tipo_empresa, INGLES[v.ingles_exigido]]
             .filter(Boolean).map(x => " · " + esc(x)).join("") : ""}</div></td>
       <td>${chipPerfil(perfilVaga(v))}</td>
@@ -611,6 +634,20 @@ function abaVagas() {
     <button data-acao="mais">Mostrar mais (${lista.length - f.limite})</button></div>` : "";
   return topo + `<div class="rolagem"><table class="tabela"><thead><tr><th class="num">Nota</th><th>Vaga</th>
     <th>Perfil</th><th>Adicionada em</th><th>Fonte</th><th>Local</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` + mais;
+}
+
+// filtro por trilha: só as trilhas que têm vaga no perfil escolhido, com a contagem
+function seletorTrilha() {
+  const f = filtroVagas;
+  const doPerfil = dados.vagas.filter(v => f.perfil === "todos" || perfilVaga(v) === f.perfil);
+  const conta = {};
+  doPerfil.forEach(v => { if (v.trilha) conta[v.trilha] = (conta[v.trilha] || 0) + 1; });
+  const ordem = Object.keys(TRILHA).filter(t => conta[t]).concat(Object.keys(conta).filter(t => !(t in TRILHA)));
+  if (f.trilha !== "todas" && !conta[f.trilha]) ordem.unshift(f.trilha);
+  return `<select id="trilha" title="Trilha da vaga">
+      <option value="todas" ${f.trilha === "todas" ? "selected" : ""}>Todas as trilhas</option>${
+      ordem.map(t => `<option value="${esc(t)}" ${f.trilha === t ? "selected" : ""}>${esc(TRILHA[t] || t)} (${conta[t] || 0})</option>`).join("")}
+    </select>`;
 }
 
 // um cartão por perfil (e "Os dois"): quantas vagas pendentes cada um tem hoje
@@ -724,6 +761,7 @@ conteudo.addEventListener("click", async e => {
 conteudo.addEventListener("change", async e => {
   const el = e.target;
   if (el.id === "rec") { filtroVagas.rec = el.value; filtroVagas.limite = 150; desenhar(); return; }
+  if (el.id === "trilha") { filtroVagas.trilha = el.value; gravarLocal("trilha", el.value); filtroVagas.limite = 150; desenhar(); return; }
   if (el.id === "esconder") { filtroVagas.esconder = el.checked; desenhar(); return; }
   if (el.id === "filtro-lacunas") { filtroLacunas.ver = el.value; lacunaAberta = null; desenhar(); return; }
   if (el.id === "descartadas") { filtroVagas.descartadas = el.checked; desenhar(); return; }

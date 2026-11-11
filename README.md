@@ -225,6 +225,10 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   desenvolvimento em Salesforce (Apex, LWC, Salesforce Developer), típica do
   GTME de Systems & Infrastructure, fica no máximo em `avaliar`. No painel, a
   aba "Vagas de hoje" tem o filtro por trilha e o selo "GTM engineer".
+- **Ashby, vaga híbrida (11/11/2026):** o `workplaceType` vence o `isRemote`.
+  Vaga Hybrid ou OnSite não conta como remota, mesmo quando a API manda
+  `isRemote=true`, como faz a Clay (board `claylabs`, todas as vagas em NY, SF
+  ou Londres; por isso ela não entrou no config).
 
 ## Como foi construído
 

@@ -41,8 +41,14 @@ def fetch_ashby(company: str) -> list[dict]:
     for j in postings:
         titulo = j.get("title", "")
         cidade = j.get("location", "") or ""
-        workplace_type = (j.get("workplaceType") or "").lower()
-        remoto = bool(j.get("isRemote")) or workplace_type == "remote" or "remote" in cidade.lower() or "remoto" in cidade.lower()
+        workplace_type = (j.get("workplaceType") or "").lower().replace("-", "").replace(" ", "")
+        # 11/11/2026 (Michel: "híbridas não são remotas"): a Clay manda
+        # isRemote=true em vaga "Hybrid" em NY/SF. O workplaceType vence: Hybrid
+        # ou OnSite nunca é remota, mesmo com isRemote ou "Remote" no local.
+        if workplace_type in ("hybrid", "onsite"):
+            remoto = False
+        else:
+            remoto = bool(j.get("isRemote")) or workplace_type == "remote" or "remote" in cidade.lower() or "remoto" in cidade.lower()
         descricao = j.get("descriptionPlain") or j.get("descriptionHtml") or ""
         publicado_em = (j.get("publishedAt") or "")[:10]
 

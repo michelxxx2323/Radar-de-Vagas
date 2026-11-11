@@ -328,6 +328,19 @@ def test_ashby_parsing():
     assert j["publicado_em"] == "2026-09-18"
     assert j["fonte"] == "ashby"
 
+    # 11/11/2026: híbrida/presencial não é remota, mesmo com isRemote=true
+    # (a Clay manda assim nas vagas de NY/SF); remota de verdade continua remota
+    casos = [({"isRemote": True, "workplaceType": "Hybrid", "location": "New York"}, False),
+             ({"isRemote": True, "workplaceType": "OnSite", "location": "San Francisco"}, False),
+             ({"isRemote": True, "workplaceType": "On-site", "location": "Remote"}, False),
+             ({"isRemote": True, "workplaceType": "Remote", "location": "London"}, True),
+             ({"isRemote": True, "location": "Brazil"}, True),
+             ({"isRemote": False, "workplaceType": "", "location": "Remote - LATAM"}, True)]
+    for campos, esperado in casos:
+        payload = {"jobs": [{"id": "1", "title": "GTM Engineer", "jobUrl": "https://x/1", **campos}]}
+        with patch("collectors.ashby.requests.get", return_value=_FakeResp(payload)):
+            assert fetch_ashby("claylabs")[0]["remoto"] is esperado, campos
+
     # board inexistente -> 404 -> lista vazia, sem exceção
     with patch("collectors.ashby.requests.get", return_value=_FakeResp({}, status_code=404)):
         assert fetch_ashby("empresa-que-nao-usa-ashby") == []
@@ -2276,6 +2289,7 @@ def test_perfil2_gtm_engineer():
 
     # trilha própria, sem apagar a gtm_revops
     assert "gtm_engineering" in pi.TRILHAS_INTL and "gtm_revops" in pi.TRILHAS_INTL
+    assert "claylabs" in cfg["sources"]["ashby"]["boards"]  # board da Clay (11/11/2026)
     assert "gtm_engineering" in pi.build_questions_intl()["trilha"]["criteria"]
 
     # Systems & Infrastructure: desenvolvimento em Salesforce segura em "avaliar"

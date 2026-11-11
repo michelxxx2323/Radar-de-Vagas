@@ -106,6 +106,7 @@ python screen.py --config config_intl.yaml --mock   # test with no network/key
 - The scheduled task (`rodar_diario.bat`) runs Profile 1 and, right after, Profile 2; `sincronizar.py` uploads both reports together.
 - **Dashboard:** `sincronizar.py` also uploads the latest `vagas_intl_*.csv`; the "Today's jobs" tab has a Profile column and a Brazil / International filter.
 - **GTM engineer (Nov 10, 2026, Clay's "How to hire a go-to-market engineer"):** the search gained the role's other names (GTME, Technical RevOps, GTM Systems, Revenue Systems, Revenue Engineer) and the title filter accepts "Sales Systems" and "Marketing Systems". Jev has its own `gtm_engineering` track ("RevOps + data + building"), separate from `gtm_revops`. A job that asks for Salesforce development (Apex, LWC, Salesforce Developer), typical of the Systems & Infrastructure GTME, is capped at `avaliar` (review). In the dashboard, the "Today's jobs" tab has a track filter and a "GTM engineer" badge.
+- **Ashby, hybrid jobs (Nov 11, 2026):** `workplaceType` wins over `isRemote`. A Hybrid or OnSite job never counts as remote, even when the API sends `isRemote=true`, as Clay does (board `claylabs`, every job in NY, SF or London, which is why it stayed out of the config).
 
 ## How it was built
 

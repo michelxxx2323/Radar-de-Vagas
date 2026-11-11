@@ -354,6 +354,10 @@ sources:
       - "connectly"          # já confirmado no config.yaml
       - "oyster"             # já confirmado no config.yaml
       - "belvo"              # já confirmado no config.yaml
+      # Clay (clay.com), quem criou o cargo GTM Engineer. Confirmada pelo descobrir_ats
+      # em 10/11/2026: 62 vagas, todas híbridas/presenciais em NY, SF ou Londres, que
+      # saem antes do Jev. Fica para pegar uma vaga remota de GTM Engineer se abrir.
+      - "claylabs"
 
   teamtailor:
     enabled: false

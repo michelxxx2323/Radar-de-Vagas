@@ -6,7 +6,7 @@
 
 # Job Fit Screener — triagem de vagas com IA
 
-Pipeline em Python que **coleta ~3.500 vagas por rodada em 18 fontes**, pede a
+Pipeline em Python que **coleta ~3.500 vagas por rodada em 19 fontes**, pede a
 um modelo de decisão (Jev, da TypeSafe AI) uma nota de aderência de cada vaga
 ao meu currículo e às minhas preferências, e entrega um **ranking em Excel com
 links clicáveis** — separando o que vale aplicar hoje do que não vale o tempo.
@@ -28,15 +28,15 @@ nos EUA.
 ## O que o projeto faz
 
 ```
- 18 fontes de vagas ──► coleta + deduplicação ──► filtros baratos ──► Jev (IA) ──► regras ──► Excel ranqueado
+ 19 fontes de vagas ──► coleta + deduplicação ──► filtros baratos ──► Jev (IA) ──► regras ──► Excel ranqueado
  (APIs, ATS, RSS)        ~3.500 vagas/rodada     título, local,      nota por     ajustes      aplicar_agora /
                                                  senioridade         vaga         determinís-  avaliar / não
                                                                                   ticos        aplicar
 ```
 
-1. **Coleta** vagas de 18 fontes: Gupy (via o MCP oficial para candidatos), Workable,
+1. **Coleta** vagas de 19 fontes: Gupy (via o MCP oficial para candidatos), Workable,
    Greenhouse, InHire, Lever, Ashby, Workday, SmartRecruiters, Teamtailor,
-   Amazon, Shopee, TikTok, 99/DiDi, Remotive, We Work Remotely, Remote OK, Remote.io e
+   Amazon, Shopee, TikTok, 99/DiDi, Google, Remotive, We Work Remotely, Remote OK, Remote.io e
    beBee — ~115 empresas acompanhadas individualmente, mais a busca por termo.
 2. **Filtra antes de gastar IA**: palavras-chave de título (com exclusões como
    "estágio", "loja", "engenheiro"), e — nas vagas remotas internacionais —
@@ -198,13 +198,14 @@ python screen.py --config config_intl.yaml --mock   # teste sem rede/chave
   - Remotive, We Work Remotely (vendas e marketing, gestão e finanças, produto), Remote OK e Remote.io.
   - Himalayas: o país e o fuso da própria vaga decidem antes do Jev.
   - Jobicy.
+  - Jobgether (`collectors/jobgether.py`, 18/11/2026): a API pública de busca do site para agentes de IA (`/astroapi/ai/jobs.json`, o caminho que o robots.txt libera), uma busca por termo, só Brasil/LATAM/anywhere. Fica a vaga cujo local aceita Brasil e cuja página (JSON-LD, baixada uma por vez e guardada no cache) lista o Brasil entre os países aceitos. Híbrida sai.
   - GTM Daily: todas as vagas pelo sitemap. Fica a vaga com título do perfil ou que cita Clay, n8n ou Claude.
   - Workable por empresa (`workable_contas`, a API de widget do apply.workable.com, começando pela Hire Overseas), A busca agregada (jobs.workable.com) fica desligada, porque tomava 429 já na 1ª busca. Se for religada, usa 8 termos, 1 busca por vez e 2 s entre chamadas.
   - Agências de staffing LATAM: HireLATAM (Recruiterflow), Purple Hiring e Latamforce (Manatal) e CloudTask.
   - Activate Talent (`collectors/activatetalent.py`): staffing remoto para marcas de e-commerce dos EUA. A página `/careers` traz as ~330 vagas no payload do Next.js (a tela mostra só ~75); fica a que contrata em Global/LATAM/Brazil, e a descrição vem do JSON-LD da página da vaga, baixada uma por vez com 1 s de pausa e guardada no cache.
   - Agências de staffing para marcas DTC/e-commerce (08/11/2026): HireHawk e Pearl Talent (Workable por empresa; o Workable roda uma conta por vez), Constant Hire (`collectors/constanthire.py`: a lista inteira está no HTML do site; fica a remota LATAM), Somewhere (`collectors/somewhere.py`: API tRPC do iframe de vagas, 100 por página, só LATAM, sem banco de talentos "SU" e sem vaga com mais de 120 dias pela data do slug; tira os códigos do título e descarta a vaga cuja descrição limita o país, como "Search Location: South Africa..." ou "Philippines-based") e Proppel (`collectors/trackerrms.py`: portal "Lite" do TrackerRMS; fica a vaga cujo "Location:" aceita Brasil).
   - Boards de empresas estrangeiras, inclusive nos ATSs de agências pequenas (Recruitee, Personio, Breezy HR e Pinpoint). O `descobrir_ats.py` testa esses quatro e a conta do Workable. Gupy, InHire, Shopee,
-  TikTok, DiDi, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
+  TikTok, DiDi, Google, Amazon, Workday e beBee ficam desligadas (são do Perfil 1).
 - **Rubrica do Jev** (`perfil_intl.py`): aderência 45%, senioridade 20%,
   elegibilidade para o Brasil 20% e ausência de gap 15%, mais inglês exigido,
   tipo de empresa e qual é o gap.
@@ -308,7 +309,7 @@ config.yaml            # termos, filtros, fontes e empresas
 
 ## Limitações conhecidas
 
-- APIs não documentadas (InHire, Shopee, TikTok, DiDi, Workable, Amazon, Workday) podem mudar
+- APIs não documentadas (InHire, Shopee, TikTok, DiDi, Workable, Amazon, Workday) e a página do Google podem mudar
   sem aviso; cada coletor tem comentários explicando como foi descoberto e
   como redescobrir.
 - beBee é leitura de HTML e já ficou fora do ar por alguns dias; o script

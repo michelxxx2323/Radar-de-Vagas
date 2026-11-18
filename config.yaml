@@ -274,6 +274,15 @@ sources:
     enabled: true
     country: "Brazil"
 
+  # Google (Google, YouTube...) — 14/11/2026, a pedido do Michel. A página
+  # google.com/about/careers/applications/jobs/results?location=Brazil já vem
+  # com as vagas no HTML (bloco "ds:1"), sem login (ver collectors/google.py).
+  # Traz todas as vagas do país (49 em 14/11/2026, 20 por página), inclusive as
+  # abertas em vários países com o Brasil entre eles, filtradas por title_keywords.
+  google:
+    enabled: true
+    location: "Brazil"
+
   # --- Remoto internacional (29/09/2026): empresas de fora que aceitam quem
   # mora no Brasil/LATAM. Em todas as fontes remotas (Remotive e We Work
   # Remotely também) só entram vagas cujo local cita Brasil, LATAM, Américas

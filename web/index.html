@@ -458,8 +458,8 @@ const SITUACAO = {
 const ORDEM_SITUACAO = ["erro", "vazia", "parcial", "ok", "sem_lista", "desligada"];
 const NOME_FONTE = { weworkremotely: "We Work Remotely", remoteok: "Remote OK", remoteio: "Remote.io",
   gtmdaily: "GTM Daily", workingnomads: "Working Nomads", mercadolivre: "Mercado Livre", smartrecruiters: "SmartRecruiters",
-  didi: "DiDi/99", tiktok: "TikTok", inhire: "InHire", bebee: "beBee", activatetalent: "Activate Talent",
-  constanthire: "Constant Hire", somewhere: "Somewhere", trackerrms: "TrackerRMS" };
+  didi: "DiDi/99", tiktok: "TikTok", google: "Google", inhire: "InHire", bebee: "beBee", activatetalent: "Activate Talent",
+  constanthire: "Constant Hire", somewhere: "Somewhere", trackerrms: "TrackerRMS", jobgether: "Jobgether" };
 function nomeFonte(f) { return NOME_FONTE[f] || f.charAt(0).toUpperCase() + f.slice(1); }
 function problemas(c) { return (c.fontes || []).filter(f => ["erro", "vazia", "parcial"].includes(f.status)); }
 function tempo(seg) { seg = Math.round(Number(seg) || 0); return seg < 60 ? `${seg} s` : `${Math.floor(seg / 60)} min${seg % 60 ? ` ${seg % 60} s` : ""}`; }
@@ -622,7 +622,7 @@ function abaVagas() {
             .filter(Boolean).map(x => " · " + esc(x)).join("") : ""}</div></td>
       <td>${chipPerfil(perfilVaga(v))}</td>
       <td class="sub" title="Dia em que a vaga apareceu no radar pela 1ª vez">${dataBR(v.adicionada_em)}</td>
-      <td class="sub">${esc(v.fonte)}</td>
+      <td class="sub">${esc(nomeFonte(v.fonte || ""))}</td>
       <td class="sub">${esc(v.cidade || (v.remoto === "True" ? "Remoto" : ""))}</td>
       <td class="num" style="white-space:nowrap">${v.status ? chipStatus(v.status)
         : v.descartada ? `<span class="chip s-encerrada" title="${esc(v.descartada)}">Descartada</span>

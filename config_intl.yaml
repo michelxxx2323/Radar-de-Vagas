@@ -212,6 +212,16 @@ sources:
     enabled: true
     geos: ["latam", "brazil", "anywhere"]
 
+  # Jobgether (18/11/2026, pedido do Michel): board de vagas remotas com API
+  # pública de busca para agentes de IA (o robots.txt libera esse caminho).
+  # Uma busca por termo do search_terms; fica só a vaga que aceita Brasil pelo
+  # local da lista e pelos países da página da vaga. Híbrida sai.
+  jobgether:
+    enabled: true
+    locations: ["brazil", "latam", "anywhere"]   # slugs do site ("latin-america" dá erro)
+    max_pages: 3             # 25 vagas por página, por termo (os termos trazem 0 a ~25)
+    pausa: 1.0               # segundos entre as páginas de vaga (só na 1ª vez; depois vem do cache)
+
   # 07/11/2026: o feed tem ~17 vagas, quase todas de dev/QA/ESL; nenhuma passou
   # no filtro de título. Desligado para não gerar aviso de fonte vazia.
   workingnomads:
@@ -377,6 +387,8 @@ sources:
   tiktok:
     enabled: false
   didi:
+    enabled: false
+  google:
     enabled: false
   amazon:
     enabled: false

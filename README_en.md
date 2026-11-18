@@ -95,6 +95,7 @@ python screen.py --config config_intl.yaml --mock   # test with no network/key
   - Remotive, We Work Remotely (sales and marketing, management and finance, product), Remote OK and Remote.io.
   - Himalayas: the job's own country and time zone decide before Jev does.
   - Jobicy.
+  - Jobgether (`collectors/jobgether.py`, Nov 18, 2026): the site's public search API for AI agents (`/astroapi/ai/jobs.json`, the path robots.txt allows), one search per term, Brazil/LATAM/anywhere only. A job stays if its location accepts Brazil and its page (JSON-LD, fetched one at a time and cached) lists Brazil among the accepted countries. Hybrid jobs are dropped.
   - GTM Daily: every job via the sitemap. A job stays if its title matches the profile or it mentions Clay, n8n or Claude.
   - Workable per company (`workable_contas`, the apply.workable.com widget API, starting with Hire Overseas). The aggregated search (jobs.workable.com) is disabled because it hit 429 on the first search. If re-enabled, it uses 8 terms, one search at a time and 2 s between calls.
   - LATAM staffing agencies: HireLATAM (Recruiterflow), Purple Hiring and Latamforce (Manatal) and CloudTask.

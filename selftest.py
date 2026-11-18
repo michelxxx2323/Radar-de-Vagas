@@ -2351,6 +2351,229 @@ def test_painel_selo_recomendacao():
     print("OK  test_painel_selo_recomendacao")
 
 
+def test_coletor_google():
+    """Google (14/11/2026): vagas do Brasil no bloco ds:1 do HTML da busca do
+    google.com/about/careers, paginadas de 20 em 20, com a descrição já na lista."""
+    import yaml as _yaml
+
+    import screen
+    from collectors import google
+
+    def ts(data):
+        import datetime as _dt
+        d = _dt.datetime.fromisoformat(data).replace(tzinfo=_dt.timezone.utc)
+        return [int(d.timestamp()), 500000000]
+
+    def vaga(id_, titulo, locais, empresa="Google", criada="2024-05-30", publicada="2026-11-05"):
+        v = [None] * 21
+        v[0], v[1], v[7], v[8] = id_, titulo, empresa, "en-US"
+        v[2] = f"https://www.google.com/about/careers/applications/signin?jobId=x{id_}&loc=BR"
+        v[3] = [None, "<ul>\n<li>Own the revenue operations roadmap.</li>\n</ul>"]
+        v[4] = [None, "<h3>Minimum qualifications:</h3><ul>\n<li>5 years of experience in sales ops.</li></ul>"
+                      "<br><h3>Preferred qualifications:</h3><ul><li>SQL.</li></ul>"]
+        v[9] = locais
+        v[10] = [None, "<p>About the job: Google Ads team in LATAM.</p>"]
+        v[12], v[13], v[14] = ts(criada), ts(criada), ts(publicada)
+        v[15] = [None, "In most instances, this position requires in-person interviews."]
+        return v
+    sp = ["São Paulo, Brazil", ["São Paulo, State of São Paulo, Brazil"], "São Paulo", None, "SP", "BR"]
+    bh_sem_cidade = ["Belo Horizonte, State of Minas Gerais, Brazil", ["x"], None, None, "MG", "BR"]
+    br_remoto = ["Brazil", ["Brazil"], None, None, None, "BR"]
+    mx = ["Mexico City, CDMX, Mexico", ["x"], "Mexico City", None, "CDMX", "MX"]
+    ny = ["New York, NY, USA", ["x"], "New York", None, "NY", "US"]
+    pag1 = [vaga("101", "Revenue Operations Manager, Google Cloud (English, Portuguese)", [sp, mx]),
+            vaga("102", "Software Engineer", [sp])]
+    pag2 = [vaga("103", "Strategy and Operations Lead, YouTube", [bh_sem_cidade, sp, br_remoto], empresa="YouTube"),
+            vaga("104", "Business Operations Analyst", [ny]),
+            vaga("101", "Revenue Operations Manager, Google Cloud (English, Portuguese)", [sp, mx])]
+
+    def pagina(vagas, total=23):
+        data = json.dumps([vagas, None, total, 20])
+        return (f"<html><script>AF_initDataCallback({{key: 'ds:0', hash: '1', data:[1], sideChannel: {{}}}});</script>"
+                f"<script nonce=\"n\">AF_initDataCallback({{key: 'ds:1', hash: '2', data:{data}, sideChannel: {{}}}});"
+                f"</script></html>")
+    chamadas = []
+
+    def get(url, params=None, **kw):
+        chamadas.append(dict(params))
+        return _FakeResp(None, text=pagina(pag1 if params.get("page", 1) == 1 else pag2))
+    with patch("collectors.google.requests.get", side_effect=get):
+        jobs = google.fetch_google(term_filter=["operations"])
+    # 23 vagas = 2 páginas; repetida, engenheiro (título) e Nova York (sem Brasil) saem
+    assert chamadas == [{"location": "Brazil"}, {"location": "Brazil", "page": 2}], chamadas
+    assert [j["id"] for j in jobs] == ["google:101", "google:103"], [j["id"] for j in jobs]
+    a, b = jobs
+    assert a["fonte"] == "google" and a["empresa"] == "Google" and a["cidade"] == "São Paulo" and a["estado"] == "SP"
+    assert a["link"] == ("https://www.google.com/about/careers/applications/jobs/results/"
+                         "101-revenue-operations-manager-google-cloud-english-portuguese")
+    assert not a["remoto"] and a["publicado_em"] == "2026-11-05"  # publicada, não criada (2024)
+    for trecho in ("About the job: Google Ads", "Responsabilidades: Own the revenue", "Minimum qualifications:",
+                   "5 years of experience", "Preferred qualifications:", "in-person interviews",
+                   "Também aberta em: Mexico City, CDMX, Mexico."):
+        assert trecho in a["descricao"], (trecho, a["descricao"])
+    assert "<" not in a["descricao"] and "::" not in a["descricao"]
+    # local só de país = remoto no Brasil; cidade sem nome vem do rótulo
+    assert b["remoto"] and b["empresa"] == "YouTube" and b["cidade"] == "Belo Horizonte / São Paulo"
+    assert b["estado"] == "MG/SP" and "remota no Brasil" in b["descricao"]
+    assert not screen.fora_do_brasil(f"{a['cidade']}, {a['estado']}", a["remoto"], a["descricao"])
+
+    # página sem o bloco de dados: erro (vira "Erro" na aba Coletores), não lista vazia calada
+    with patch("collectors.google.requests.get", return_value=_FakeResp(None, text="<html>captcha</html>")):
+        try:
+            google.fetch_google()
+            raise AssertionError("devia falhar sem o bloco ds:1")
+        except RuntimeError:
+            pass
+    # busca sem resultado: lista vazia, sem erro
+    with patch("collectors.google.requests.get", return_value=_FakeResp(None, text=pagina([], total=0))):
+        assert google.fetch_google() == []
+
+    # ligado no Perfil 1, desligado no Perfil 2; o screen.py cria a tarefa
+    raiz = Path(__file__).parent
+    cfg = _yaml.safe_load((raiz / "config.yaml").read_text(encoding="utf-8"))
+    assert cfg["sources"]["google"] == {"enabled": True, "location": "Brazil"}
+    intl = _yaml.safe_load((raiz / "config_intl.yaml").read_text(encoding="utf-8"))
+    assert intl["sources"]["google"]["enabled"] is False
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(cfg)
+    assert [r for f, r, _ in tarefas if f == "google"] == ["Google falhou"]
+    tarefas.clear()
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(intl)
+    assert not [f for f, _, _ in tarefas if f == "google"]
+    # painel: nome "Google" na aba Coletores e na coluna Fonte das vagas
+    html = (raiz / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'google: "Google"' in html and "${esc(nomeFonte(v.fonte || \"\"))}" in html
+    print("OK  test_coletor_google")
+
+
+def test_coletor_jobgether():
+    """Jobgether (18/11/2026): API pública de busca para agentes
+    (/astroapi/ai/jobs.json) e, na página da vaga, o JSON-LD com a descrição e
+    os países aceitos em código ISO."""
+    import yaml as _yaml
+
+    import perfil_intl
+    import screen
+    from collectors import jobgether
+
+    def vaga(id_, titulo, local, remoto="Full Remote", salario=None, empresa="Acme"):
+        return {"id": id_, "title": titulo, "company": empresa, "url": f"https://jobgether.com/offer/{id_}-x",
+                "location": local, "remote": remoto, "contractType": "Full time",
+                "experience": "Mid-level (2-5 years)", "salaryRange": salario, "jobFunctions": [],
+                "postedAt": "2026-11-17T22:31:28.651Z"}
+    pagina1 = [vaga("jg01", "Ecommerce Operations Manager", "South America, Latin America, Brazil"),
+               vaga("jg02", "Revenue Operations Lead", "Anywhere", salario="130000-150000 USD", empresa=""),
+               vaga("jg03", "Marketplace Operations Specialist", "Latin America, Mexico"),
+               vaga("jg04", "Sales Operations Analyst", "United States"),
+               vaga("jg05", "Senior Software Engineer", "Anywhere"),
+               vaga("jg06", "Growth Operations Manager", "Latin America", remoto="Hybrid")]
+    pagina2 = [vaga("jg07", "Business Operations Associate", "Latin America")]
+
+    def ld(desc, paises, org="Acme"):
+        d = {"@context": "https://schema.org", "@type": "JobPosting", "title": "x", "description": desc,
+             "datePosted": "2026-11-17T22:31:28.651Z", "hiringOrganization": {"@type": "Organization", "name": org},
+             "jobLocationType": "TELECOMMUTE",
+             "applicantLocationRequirements": [{"@type": "Country", "name": p} for p in paises]}
+        migalha = {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": []}
+        return (f'<script type="application/ld+json">{json.dumps(migalha)}</script>'
+                f'<script type="application/ld+json">{json.dumps(d)}</script>')
+    paginas = {"jg01": ld("<p>This a Full Remote job, the offer is available from: Brazil</p><p>Own Seller Central.</p>",
+                          ["AR", "BR", "CL"]),
+               "jg02": ld("<p>Run RevOps &amp; HubSpot.</p>", ["US", "BR", "RW", "YE"], org="Fingerprint"),
+               "jg03": ld("<p>Mexico only.</p>", ["MX"]),
+               "jg07": ld("<p>Support the COO.</p>", [])}
+    chamadas, paginas_baixadas = [], []
+
+    def get(url, params=None, **kw):
+        if url == jobgether.API_URL:
+            chamadas.append(dict(params))
+            lote = pagina1 if params["page"] == 1 else pagina2
+            return _FakeResp({"jobs": lote, "pagination": {"page": params["page"], "limit": 6,
+                                                           "hasMore": params["page"] == 1}})
+        paginas_baixadas.append(url)
+        return _FakeResp(None, text="<html>" + paginas[url.rsplit("/", 1)[1].split("-")[0]] + "</html>")
+    filtro = ["operations"]
+    with patch("collectors.jobgether.requests.get", side_effect=get), \
+            patch("collectors.jobgether.time.sleep"), patch("collectors.jobgether.POR_PAGINA", 6):
+        jobs = jobgether.fetch_jobgether("revenue operations", term_filter=filtro, pausa=1.0)
+    # 2 páginas da API, com os slugs de local e a ordem por data
+    assert len(chamadas) == 2 and chamadas[0]["keyword"] == "revenue operations", chamadas
+    assert chamadas[0]["locations"] == "brazil,latam,anywhere" and chamadas[0]["sort"] == "date"
+    assert [c["page"] for c in chamadas] == [1, 2]
+    # EUA, engenheiro e híbrida saem sem baixar a página; o México sai depois
+    # de ler os países da página; página sem lista de países não decide
+    assert [j["titulo"] for j in jobs] == ["Ecommerce Operations Manager", "Revenue Operations Lead",
+                                           "Business Operations Associate"], [j["titulo"] for j in jobs]
+    assert [u.rsplit("/", 1)[1] for u in paginas_baixadas] == ["jg01-x", "jg02-x", "jg03-x", "jg07-x"]
+    a, b = jobs[0], jobs[1]
+    assert a["fonte"] == "jobgether" and a["id"] == "jobgether:jg01" and a["remoto"]
+    assert a["link"] == "https://jobgether.com/offer/jg01-x" and a["publicado_em"] == "2026-11-17"
+    assert a["cidade"] == "Remoto internacional — South America, Latin America, Brazil"
+    assert "Own Seller Central." in a["descricao"] and "Experiência: Mid-level (2-5 years)." in a["descricao"]
+    assert b["empresa"] == "Fingerprint" and b["salario"] == "USD 130,000 a 150,000 /ano"
+    assert "Run RevOps & HubSpot." in b["descricao"]
+    assert jobgether.ler_vaga(paginas["jg03"])["paises"] == ["MX"]
+    # o filtro de geografia do Perfil 2 aceita todas, e nenhuma sai como "fora do Brasil"
+    for j in jobs:
+        assert perfil_intl.checar_elegibilidade(j)[0] == "sim", (j["titulo"], perfil_intl.checar_elegibilidade(j))
+        assert not screen.fora_do_brasil(j["cidade"], True, j["descricao"])
+
+    # 2ª rodada: as páginas vêm do cache (a do México também não volta: não
+    # tinha "BR", mas tinha descrição, então ficou guardada)
+    paginas_baixadas.clear()
+    chamadas.clear()
+    with patch("collectors.jobgether.requests.get", side_effect=get), \
+            patch("collectors.jobgether.time.sleep"), patch("collectors.jobgether.POR_PAGINA", 6):
+        de_novo = jobgether.fetch_jobgether("revenue operations", term_filter=filtro)
+    assert paginas_baixadas == [], paginas_baixadas
+    assert [j["descricao"] for j in de_novo] == [j["descricao"] for j in jobs]
+
+    # termo sem vaga não vira aviso de "board zerado"
+    limpar_boards()
+    with patch("collectors.jobgether.requests.get",
+               return_value=_FakeResp({"jobs": [], "pagination": {"page": 1, "limit": 25, "hasMore": False}})):
+        assert jobgether.fetch_jobgether("clay") == []
+    assert not [b for b in boards_zerados() if b[0] == "jobgether"]
+
+    # 504 (a busca estourou o tempo do servidor): tenta de novo uma vez
+    respostas = [_FakeResp(None, status_code=504),
+                 _FakeResp({"jobs": pagina2, "pagination": {"page": 1, "limit": 25, "hasMore": False}})]
+    with patch("collectors.jobgether.requests.get", side_effect=lambda *a, **k: respostas.pop(0)), \
+            patch("collectors.jobgether.time.sleep") as dorme:
+        assert [j["titulo"] for j in jobgether.fetch_jobgether("business operations", term_filter=filtro)] == \
+            ["Business Operations Associate"]
+    assert dorme.call_count == 1 and not respostas
+    # duas vezes 504: a busca do termo falha (o screen.py anota e segue com os outros termos)
+    with patch("collectors.jobgether.requests.get", return_value=_FakeResp(None, status_code=504)), \
+            patch("collectors.jobgether.time.sleep"):
+        try:
+            jobgether.fetch_jobgether("business operations")
+            raise AssertionError("deveria falhar com 504 nas duas tentativas")
+        except RuntimeError as e:
+            assert "504" in str(e)
+
+    # config: ligada só no Perfil 2, uma busca por termo, 2 ao mesmo tempo
+    raiz = Path(__file__).parent
+    intl = _yaml.safe_load((raiz / "config_intl.yaml").read_text(encoding="utf-8"))
+    br = _yaml.safe_load((raiz / "config.yaml").read_text(encoding="utf-8"))
+    assert intl["sources"]["jobgether"]["enabled"]
+    assert not br.get("sources", {}).get("jobgether", {}).get("enabled")
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(intl)
+    assert len([f for f, _, _ in tarefas if f == "jobgether"]) == len(intl["search_terms"])
+    assert screen._SIMULTANEAS_POR_FONTE["jobgether"] == 2
+    tarefas.clear()
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(br)
+    assert not [f for f, _, _ in tarefas if f == "jobgether"]
+    # painel: nome "Jobgether" na aba Coletores e na coluna Fonte das vagas
+    html = (raiz / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'jobgether: "Jobgether"' in html
+    print("OK  test_coletor_jobgether")
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -2392,4 +2615,6 @@ if __name__ == "__main__":
     test_coletores_agencias_dtc()
     test_perfil2_gtm_engineer()
     test_painel_selo_recomendacao()
+    test_coletor_google()
+    test_coletor_jobgether()
     print("\nTodos os testes offline passaram.")

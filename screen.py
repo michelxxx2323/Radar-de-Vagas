@@ -40,9 +40,11 @@ from collectors.breezy import fetch_breezy
 from collectors.cloudtask import fetch_cloudtask
 from collectors.constanthire import fetch_constanthire
 from collectors.didi import fetch_didi
+from collectors.google import fetch_google
 from collectors.greenhouse import fetch_greenhouse
 from collectors.gtmdaily import fetch_gtmdaily
 from collectors.himalayas import fetch_himalayas
+from collectors.jobgether import fetch_jobgether
 from collectors.jobicy import fetch_jobicy
 from collectors.gupy import fetch_gupy, fetch_gupy_empresa
 from collectors.inhire import fetch_inhire
@@ -373,6 +375,12 @@ def collect_jobs(config: dict) -> list[dict]:
         tarefa("didi", "DiDi/99 falhou", lambda: fetch_didi(
             country=sources["didi"].get("country", "Brazil"), term_filter=titulo_ok, limit=company_limit))
 
+    # Google (14/11/2026): todas as vagas do país na página de carreiras do
+    # Google (poucas dezenas no Brasil), filtradas pelo título
+    if on("google"):
+        tarefa("google", "Google falhou", lambda: fetch_google(
+            location=sources["google"].get("location", "Brazil"), term_filter=titulo_ok, limit=company_limit))
+
     if on("workday"):
         for site in sources["workday"].get("sites", []):
             tarefa("workday", f"Workday falhou para '{site.get('empresa')}'",
@@ -440,6 +448,15 @@ def collect_jobs(config: dict) -> list[dict]:
         for geo in jb.get("geos", ["anywhere", "latam", "brazil"]):
             tarefa("jobicy", f"Jobicy falhou para '{geo}'",
                    lambda g=geo: fetch_jobicy(geo=g, term_filter=titulo_ok, limit=company_limit))
+    # Jobgether (18/11/2026): API pública de busca para agentes, uma busca por
+    # termo, só vagas que aceitam Brasil; a página da vaga (descrição e países
+    # aceitos) uma por vez, com cache
+    if on("jobgether"):
+        jg = sources["jobgether"]
+        for term in jg.get("termos") or terms:
+            tarefa("jobgether", f"Jobgether falhou para '{term}'", lambda t=term: fetch_jobgether(
+                t, locations=jg.get("locations"), term_filter=titulo_ok, max_pages=jg.get("max_pages", 3),
+                limit=company_limit, pausa=jg.get("pausa", 1.0), max_dias=jg.get("max_dias")))
     # GTM Daily: diretório curado de vagas de GTM engineering/RevOps (lê as
     # páginas da listagem e baixa a página só das que passam no título e local)
     # CloudTask: marketplace LATAM, uma busca só (08/11/2026)
@@ -522,7 +539,7 @@ def collect_jobs(config: dict) -> list[dict]:
 # em 14 de 26 buscas (07/11/2026)
 # workable_contas: uma conta por vez desde 08/11/2026 (7 contas; o IP do PC
 # está tomando 429 do Workable)
-_SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1, "workable_contas": 1}
+_SIMULTANEAS_POR_FONTE = {"bebee": 2, "workable": 1, "workable_contas": 1, "jobgether": 2}
 _SIMULTANEAS_PADRAO = 4
 
 # Situação de cada fonte na última coleta, para a aba "Coletores" do painel

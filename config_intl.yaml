@@ -295,6 +295,14 @@ sources:
   cloudtask:
     enabled: true
     max_dias: 120            # o board tem vagas de 2024-2025 ainda no ar
+  # Puente Talent (23/11/2026, pedido do Michel): agência que coloca
+  # profissionais da América Latina em empresas dos EUA, pagamento mensal em
+  # dólar. A API JSON do site (puentetalent.com/api/jobs) traz as ~60 vagas com
+  # a descrição em 2 requisições. Fica a remota cuja lista de países tem o
+  # Brasil; vaga só da Argentina ou dos EUA sai.
+  puente:
+    enabled: true
+    max_dias:                # vazio = sem corte por idade (vagas de fev/2026 seguem abertas e ativas)
   # Activate Talent (08/11/2026): staffing remoto para marcas de e-commerce dos
   # EUA (Amazon, TikTok Shop, Shopify, wholesale). Plataforma própria. Fica a
   # vaga que contrata em Global/LATAM/Brazil; Philippines, Europe etc. saem.
@@ -410,7 +418,7 @@ dedup_ignora_codigos: true
 # fontes (aqui só têm empresa estrangeira)
 somente_remoto: true
 fontes_pagam_dolar: ["greenhouse", "lever", "ashby", "teamtailor", "smartrecruiters", "workable_contas",
-                     "recruitee", "personio", "breezy", "pinpoint"]
+                     "recruitee", "personio", "breezy", "pinpoint", "puente"]
 
 limit_per_term: 15
 jev_model: "jev-latest"

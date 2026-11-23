@@ -2574,6 +2574,127 @@ def test_coletor_jobgether():
     assert 'jobgether: "Jobgether"' in html
     print("OK  test_coletor_jobgether")
 
+
+def test_coletor_puente():
+    """Puente Talent (23/11/2026): API JSON do site (/api/jobs), cumulativa
+    (a última página traz tudo), com a descrição e a lista de países aceitos."""
+    import yaml as _yaml
+
+    import perfil_intl
+    import screen
+    from collectors import puente
+
+    latam = ["Mexico", "Colombia", "Brazil", "Argentina", "Chile", "Peru", "Venezuela", "Costa Rica", "Ecuador",
+             "Dominican Republic", "Uruguay", "Panama", "Honduras", "Guatemala", "Paraguay", "Bolivia",
+             "El Salvador", "Nicaragua"]
+
+    def vaga(id_, titulo, paises=None, pais=None, rotulo=None, modelo="Remote", org="confidential",
+             lo=None, hi=None, moeda="USD", banco=False, desc="Own the pipeline."):
+        return {"id": id_, "displayId": 2600 + id_, "slug": "17791523201610131129PWz", "title": titulo,
+                "city": "Remote", "descriptionHtml": f"<p>{desc}</p>", "descriptionText": desc,
+                "category": "Operations", "country": pais, "otherCountry": rotulo,
+                "locationLabel": f"{rotulo or pais or 'Remote'} · Remote", "locationType": modelo,
+                "employmentType": "Independent Contractor", "applicantCountries": paises,
+                "salaryMin": lo, "salaryMax": hi, "salaryCurrency": moeda, "salaryUnitText": "MONTH",
+                "hiringOrganizationName": org, "isTalentPool": banco, "isActive": True,
+                "createdOn": "2026-11-12T00:00:00.000000Z"}
+    todas = [vaga(1, "Revenue Operations Manager", paises=latam, rotulo="Latin America", lo=3000, hi=4200),
+             vaga(2, "Data Engineer", paises=["Brazil"]),
+             vaga(3, "GTM Engineer (Clay & Outbound Automation)", pais="United States", modelo=""),
+             vaga(4, "SEO & Growth Marketing Specialist", pais="Argentina", modelo=""),
+             vaga(5, "Marketing Operations Intern", paises=["Philippines", "Peru"], rotulo="Philippines, Peru"),
+             vaga(6, "Operations Coordinator", org=None, lo=3000, hi=3000, moeda=None,
+                  desc="Work directly with US-based clients."),
+             vaga(7, "Growth Marketing Manager", paises=latam, rotulo="Latin America", modelo="Hybrid"),
+             vaga(8, "Marketing Coordinator", paises=latam, rotulo="Latin America", banco=True),
+             vaga(9, "Operações de GTM – Sênior", paises=["Brazil", "Argentina"],
+                  rotulo="Brazil, Argentina", org="Acme Inc")]
+    chamadas = []
+
+    def get_cumulativa(url, params=None, **kw):
+        assert url == puente.API_URL, url
+        chamadas.append(params["page"])
+        lote = todas[:6 * params["page"]]
+        return _FakeResp({"jobs": lote, "totalCount": len(todas), "page": params["page"], "pageSize": 6,
+                          "hasMore": len(lote) < len(todas), "isConfigured": True})
+    filtro = ["operations", "operacoes", "gtm", "marketing"]
+    limpar_boards()
+    with patch("collectors.puente.requests.get", side_effect=get_cumulativa):
+        jobs = puente.fetch_puente(term_filter=filtro)
+    # a 1ª página e a última (que já traz tudo): 2 requisições
+    assert chamadas == [1, 2], chamadas
+    # engenheiro de dados (título), EUA, Argentina, Filipinas/Peru, híbrida e
+    # banco de talentos saem
+    assert [j["titulo"] for j in jobs] == ["Revenue Operations Manager", "Operations Coordinator",
+                                           "Operações de GTM – Sênior"], [j["titulo"] for j in jobs]
+    a, b, c = jobs
+    assert a["fonte"] == "puente" and a["id"] == "puente:2601" and a["remoto"]
+    assert a["link"] == "https://puentetalent.com/jobs/revenue-operations-manager-2601"
+    assert a["empresa"] == "Puente (cliente nos EUA)" and a["cidade"] == "Remoto — Latin America"
+    assert a["salario"] == "USD 3,000 a 4,200 /mês" and a["publicado_em"] == "2026-11-12"
+    assert "Contrato: Independent Contractor." in a["descricao"] and "Own the pipeline." in a["descricao"]
+    assert "Brazil" in a["descricao"]
+    assert b["salario"] == "USD 3,000 /mês" and b["cidade"] == "Remoto — Latin America"
+    assert b["empresa"] == "Puente (cliente nos EUA)"
+    assert c["empresa"] == "Acme Inc" and c["cidade"] == "Remoto — Brazil, Argentina"
+    assert c["link"] == "https://puentetalent.com/jobs/operacoes-de-gtm-senior-2609"
+    # o slug do link igual ao do site (conferido nas 62 vagas em 23/11/2026)
+    assert puente.slug("Founder's Associate") == "founder-s-associate"
+    assert puente.slug("Senior AI Engineer – AI Agents & Automation") == "senior-ai-engineer-ai-agents-automation"
+    assert puente.slug("Client Success Manager (Remote)") == "client-success-manager-remote"
+    assert not [x for x in boards_zerados() if x[0] == "puente"]
+    # o filtro de geografia do Perfil 2 aceita todas ("US-based clients" na
+    # descrição não derruba: o local diz América Latina) e todas pagam em dólar
+    raiz = Path(__file__).parent
+    intl = _yaml.safe_load((raiz / "config_intl.yaml").read_text(encoding="utf-8"))
+    for j in jobs:
+        assert perfil_intl.checar_elegibilidade(j)[0] == "sim", (j["titulo"], perfil_intl.checar_elegibilidade(j))
+        assert not screen.fora_do_brasil(j["cidade"], True, j["descricao"])
+        assert screen.paga_em_dolar(j, set(intl["fontes_pagam_dolar"]))
+    # limite e corte por idade
+    with patch("collectors.puente.requests.get", side_effect=get_cumulativa):
+        assert len(puente.fetch_puente(term_filter=filtro, limit=1)) == 1
+        assert puente.fetch_puente(term_filter=filtro, max_dias=5, hoje=dt.date(2026, 11, 30)) == []
+
+    # se a API passar a paginar de verdade, o coletor pede as páginas do meio
+    chamadas.clear()
+    mais = todas + [vaga(10 + i, f"Sales Operations Analyst {i}", paises=latam, rotulo="Latin America")
+                    for i in range(5)]
+
+    def get_paginada(url, params=None, **kw):
+        chamadas.append(params["page"])
+        n = params["page"]
+        return _FakeResp({"jobs": mais[6 * (n - 1):6 * n], "totalCount": len(mais), "page": n, "pageSize": 6,
+                          "hasMore": 6 * n < len(mais)})
+    with patch("collectors.puente.requests.get", side_effect=get_paginada):
+        assert len(puente.baixar_todas()) == len(mais)
+    assert chamadas == [1, 3, 2], chamadas
+
+    # erro de HTTP sobe (o screen.py anota "Puente falhou" e segue)
+    with patch("collectors.puente.requests.get", return_value=_FakeResp(None, status_code=503)):
+        try:
+            puente.fetch_puente()
+            raise AssertionError("deveria falhar com 503")
+        except RuntimeError as e:
+            assert "503" in str(e)
+
+    # config: ligada só no Perfil 2, uma tarefa só, e conta como fonte em dólar
+    br = _yaml.safe_load((raiz / "config.yaml").read_text(encoding="utf-8"))
+    assert intl["sources"]["puente"]["enabled"] and "puente" in intl["fontes_pagam_dolar"]
+    assert not br.get("sources", {}).get("puente", {}).get("enabled")
+    tarefas = []
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(intl)
+    assert [r for f, r, _ in tarefas if f == "puente"] == ["Puente falhou"]
+    tarefas.clear()
+    with patch("screen._rodar_tarefas", side_effect=lambda t, c: tarefas.extend(t) or [[] for _ in t]):
+        screen.collect_jobs(br)
+    assert not [f for f, _, _ in tarefas if f == "puente"]
+    # painel: nome "Puente" na aba Coletores e na coluna Fonte das vagas
+    html = (raiz / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'puente: "Puente"' in html
+    print("OK  test_coletor_puente")
+
 if __name__ == "__main__":
     test_gupy_parsing()
     test_remotive_parsing()
@@ -2617,4 +2738,5 @@ if __name__ == "__main__":
     test_painel_selo_recomendacao()
     test_coletor_google()
     test_coletor_jobgether()
+    test_coletor_puente()
     print("\nTodos os testes offline passaram.")

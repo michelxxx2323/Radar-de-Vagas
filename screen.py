@@ -53,6 +53,7 @@ from collectors.manatal import fetch_manatal
 from collectors.mercadolivre import fetch_mercadolivre
 from collectors.personio import fetch_personio
 from collectors.pinpoint import fetch_pinpoint
+from collectors.puente import fetch_puente
 from collectors.recruitee import fetch_recruitee
 from collectors.recruiterflow import fetch_recruiterflow
 from collectors.remoteio import fetch_remoteio
@@ -463,6 +464,11 @@ def collect_jobs(config: dict) -> list[dict]:
     if on("cloudtask"):
         tarefa("cloudtask", "CloudTask falhou", lambda: fetch_cloudtask(
             term_filter=titulo_ok, limit=company_limit, max_dias=sources["cloudtask"].get("max_dias", 120)))
+    # Puente Talent (23/11/2026): agência LATAM -> EUA, pagamento em dólar. A API
+    # JSON do site traz todas as vagas com a descrição em 2 requisições
+    if on("puente"):
+        tarefa("puente", "Puente falhou", lambda: fetch_puente(
+            term_filter=titulo_ok, limit=company_limit, max_dias=sources["puente"].get("max_dias")))
     # Activate Talent: a página /careers traz a lista inteira; a página da vaga
     # (descrição) só das que passam no título e no local (08/11/2026)
     if on("activatetalent"):

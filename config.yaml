@@ -247,6 +247,10 @@ sources:
       # -- 28/10/2026: saíram do Greenhouse (board dava 404) para a Gupy --
       - "Creditas Soluções Financeiras"   # Creditas
       - "Zenvia Jobs"                     # Zenvia (CPaaS/martech)
+      # -- 25/11/2026: fintechs da lista do Michel (crescimento de time) --
+      - "Asaas"               # carreiras.asaas.com -> asaas.gupy.io; 18 vagas em 25/11/2026
+      - "Omie"                # ERP/fintech PME; 13 vagas em 25/11/2026
+      - "iugu"                # nome da career page é minúsculo; 6 vagas (Executivo de Contas Sr etc.)
 
   # API pública do Remotive. Vagas remotas/internacionais em inglês.
   remotive:
@@ -266,6 +270,15 @@ sources:
     enabled: true
     location: "Brazil"
     limit_per_term: 60
+
+  # Contas do Workable de UMA empresa (apply.workable.com/<conta>), mesma fonte
+  # do config_intl.yaml (collectors/workable_contas.py). A busca "workable"
+  # acima é por termo e não traz todas as vagas da empresa.
+  workable_contas:
+    enabled: true
+    empresas:
+      - {empresa: "RecargaPay", id: "recargapay"}   # 25/11/2026 — fintech da lista do Michel (recargapay.com.br/carreiras
+                                                    # -> apply.workable.com/j/...); 29 vagas, Brasil remoto
 
   # 99 (DiDi) — 30/09/2026: a 99 publica no site da DiDi (careers.didiglobal.com),
   # não na Gupy. API JSON do próprio site (ver collectors/didi.py); ~100 vagas
@@ -537,10 +550,17 @@ sources:
       - "alelo"                   # Alelo — "Analista de Planejamento Comercial Sênior"
       - "sympla"                  # Sympla — "Analista de Sales Operations Pleno/Sênior"
       - "praso"                   # Praso (B2B marketplace) — "Analista de Revenue Operations"
+      # -- 25/11/2026: fintechs da lista do Michel --
+      - "contaazul"               # Conta Azul (ERP/fintech PME) — 11 vagas, ex.: "Analista Sr de Estratégia Pós-Vendas"
+      - "dock"                    # Dock (banking/cartões as a service; dock.tech/carreira) — 29 vagas, ex.: Account Manager
+      - "mb"                      # Mercado Bitcoin (mercadobitcoin.com.br/carreiras -> mb.inhire.app) — 13 vagas
       # Procuradas e SEM ATS público suportado (25/09/2026): Casas Bahia, Netshoes,
       # KaBuM, Carrefour, Natura, Centauro/SBF, Leroy Merlin, Temu, AliExpress.
       # "shein" e "via" existem no Greenhouse, mas são outras empresas/vagas só
       # nos EUA (Via Transportation) — não adicionar.
+      # 25/11/2026 — fintechs da lista do Michel sem ATS que o radar lê: PicPay (Oracle HCM,
+      # epdm.fa.la1.oraclecloud.com, site "PicPay"), CloudWalk/InfinitePay (site próprio
+      # lp.cloudwalk.io/jobs) e Avenia (site próprio, avenia.io/careers, 1 vaga).
     fetch_descriptions: true   # false = mais rápido, mas sem texto da vaga pro Jev avaliar
 
   # API pública oficial da Lever (Postings API) — mesma lógica do Greenhouse/
@@ -560,6 +580,8 @@ sources:
       - board: "lalamove"   # 05/10/2026 via /radar — Lalamove: "Analista Sênior de Estratégia",
         country: "BR"       # "Analista de Operações de Vendas". Board global (185 vagas) — só Brasil.
       - "ciandt"       # CI&T (consultoria/tech, atua globalmente) — vagas remoto Brasil confirmadas (histórico do projeto, sem coletor até agora)
+      - "neon"         # 25/11/2026 — Banco Neon (site.neon.com.br/carreira -> jobs.lever.co/neon); 10 vagas.
+                       # Atenção: "neon" no Ashby e no Personio são outras empresas
 
   # API pública da Ashby (Job Board API) — mesma lógica das outras fontes
   # "por empresa" (jobs.ashbyhq.com/<slug>). Adicionada em 21/09/2026 — é uma
